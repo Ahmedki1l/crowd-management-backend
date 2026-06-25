@@ -1,0 +1,56 @@
+name: ci
+
+# Lint + test gate. Runs on every PR into develop / stage / production and on
+# pushes to those branches. The `lint` and `test` jobs are wired as REQUIRED
+# status checks on the stage and production rulesets, so code cannot be promoted
+# unless ruff passes and the full test suite is green.
+#
+# Runs on the lightweight core + dev dependencies only — no GPU, cameras, or
+# model artifacts (tests use the in-repo fakes). Two heat-map overlay tests skip
+# unless Pillow is present.
+
+on:
+  pull_request:
+    branches: [develop, stage, production]
+  push:
+    branches: [develop, stage, production]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff check
+        run: ruff check app scripts tests
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install (core + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Run tests
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+        run: pytest --timeout=60 --timeout-method=thread -q

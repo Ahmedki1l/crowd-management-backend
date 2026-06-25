@@ -132,11 +132,9 @@ class OSNetEmbeddingExtractor:
         crops = [self._prepare_crop(image, bbox) for bbox in bboxes]
         batch = np.stack(crops, axis=0)
 
-        if self._runtime == "onnx":
-            embeddings = self._infer_onnx(batch)
-        else:
-            embeddings = self._infer_torch(batch)
-
+        embeddings = (
+            self._infer_onnx(batch) if self._runtime == "onnx" else self._infer_torch(batch)
+        )
         return _l2_normalise(embeddings.astype(np.float32))
 
     def _prepare_crop(

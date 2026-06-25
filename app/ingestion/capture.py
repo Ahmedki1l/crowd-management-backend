@@ -301,9 +301,12 @@ class RtspCaptureThread(threading.Thread):
         now = self._clock.now()
         self._last_frame_ts = now
 
-        if self._min_interval > 0.0 and self._last_emit_ts is not None:
-            if (now - self._last_emit_ts) < self._min_interval:
-                return  # downsample: too soon since last emitted frame
+        if (
+            self._min_interval > 0.0
+            and self._last_emit_ts is not None
+            and (now - self._last_emit_ts) < self._min_interval
+        ):
+            return  # downsample: too soon since last emitted frame
 
         self._record_emit_interval(now)
         self._last_emit_ts = now

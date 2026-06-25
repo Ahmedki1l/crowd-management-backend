@@ -51,17 +51,13 @@ class AsyncSubscription:
 
         def _put() -> None:
             if self._queue.full():
-                try:
+                with contextlib.suppress(asyncio.QueueEmpty):
                     self._queue.get_nowait()  # drop oldest
-                except asyncio.QueueEmpty:
-                    pass
             self._queue.put_nowait(event)
 
-        try:
+        # Loop already closed (shutdown race) — nothing to deliver.
+        with contextlib.suppress(RuntimeError):
             self._loop.call_soon_threadsafe(_put)
-        except RuntimeError:
-            # Loop already closed (shutdown race) — nothing to deliver.
-            pass
 
     def __aiter__(self) -> AsyncSubscription:
         return self

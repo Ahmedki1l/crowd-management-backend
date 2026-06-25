@@ -74,6 +74,8 @@ class ZoneEvaluator:
             polygon = self._polygons[zone.id]
             members = result[zone.id]
             for det in tracked:
-                if point_in_polygon(det.bbox.bottom_center, polygon) or polygon_overlap_ratio(det.bbox, polygon) >= MIN_OVERLAP_RATIO:
+                inside = point_in_polygon(det.bbox.bottom_center, polygon)
+                overlapping = polygon_overlap_ratio(det.bbox, polygon) >= MIN_OVERLAP_RATIO
+                if inside or overlapping:
                     members.add(det.track_id)
         return result
