@@ -1,0 +1,64 @@
+"""Camera API schemas. The password is **write-only** (HLD 8.1 / 14):
+accepted on POST/PATCH, never returned by any GET."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.domain.models import CameraRole
+
+
+class CameraCreate(BaseModel):
+    name: str
+    area: str
+    ip: str
+    port: int = 554
+    username: str
+    password: str = Field(..., description="RTSP password; stored encrypted, never returned")
+    roles: list[CameraRole] = Field(default_factory=lambda: [CameraRole.OCCUPANCY])
+    stream_channel_sub: int = 102
+    stream_channel_main: int = 101
+    enabled: bool = True
+
+
+class CameraUpdate(BaseModel):
+    name: str | None = None
+    area: str | None = None
+    ip: str | None = None
+    port: int | None = None
+    username: str | None = None
+    password: str | None = Field(default=None, description="Set to rotate; never returned")
+    roles: list[CameraRole] | None = None
+    stream_channel_sub: int | None = None
+    stream_channel_main: int | None = None
+    enabled: bool | None = None
+
+
+class CameraOut(BaseModel):
+    """Response model — note: NO password field, by design."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    area: str
+    ip: str
+    port: int
+    username: str
+    roles: list[str]
+    stream_channel_sub: int
+    stream_channel_main: int
+    enabled: bool
+    has_password: bool = False
+    updated_at: datetime | None = None
+
+
+class CameraTestResult(BaseModel):
+    reachable: bool
+    codec: str | None = None
+    resolution: str | None = None
+    fps: float | None = None
+    latency_ms: float | None = None
+    error: str | None = None

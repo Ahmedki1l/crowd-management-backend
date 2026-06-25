@@ -1,0 +1,139 @@
+"""Integration tests for the historical time-series router (HLD 8.3).
+
+Raw time-series rows (occupancy samples, crossing events, dwell sessions, and
+alerts) are inserted directly through their repositories, then the matching
+``/api/v1/history/*`` endpoints are queried with an explicit ``from``/``to``
+window and ``bucket`` width. Assertions cover the bucketed aggregation each
+endpoint performs: mean occupancy, net crossings, and average dwell.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.db.repositories.alert_repo import AlertRepository
+from app.db.repositories.crossing_repo import CrossingRepository
+from app.db.repositories.dwell_repo import DwellRepository
+from app.db.repositories.occupancy_repo import OccupancyRepository
+
+# A clean hour boundary so 10:00/10:30 share one 1h bucket and 11:00 starts the next.
+_BASE = datetime(2024, 6, 12, 10, 0, tzinfo=UTC)
+_WINDOW = {
+    "from": str(datetime(2024, 6, 12, 9, 0, tzinfo=UTC).timestamp()),
+    "to": str(datetime(2024, 6, 12, 13, 0, tzinfo=UTC).timestamp()),
+    "bucket": "1h",
+}
+
+
+def _at(hour: int, minute: int = 0) -> datetime:
+    return _BASE.replace(hour=hour, minute=minute)
+
+
+def test_occupancy_history_returns_mean_per_bucket(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = OccupancyRepository(session)
+    repo.add_sample(zone_id=1, ts=_at(10, 0), count=4)
+    repo.add_sample(zone_id=1, ts=_at(10, 30), count=6)
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/occupancy",
+        params={"zone_id": 1, **_WINDOW},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    points = response.json()["points"]
+    assert [p["value"] for p in points] == [5.0]
+
+
+def test_occupancy_history_separates_distinct_buckets(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = OccupancyRepository(session)
+    repo.add_sample(zone_id=1, ts=_at(10, 0), count=4)
+    repo.add_sample(zone_id=1, ts=_at(11, 0), count=8)
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/occupancy",
+        params={"zone_id": 1, **_WINDOW},
+        headers=auth_headers,
+    )
+
+    assert [p["value"] for p in response.json()["points"]] == [4.0, 8.0]
+
+
+def test_entry_exit_history_returns_net_per_bucket(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = CrossingRepository(session)
+    repo.add(line_id=1, area_id="lobby", ts=_at(10, 0), direction="in", track_ref=1)
+    repo.add(line_id=1, area_id="lobby", ts=_at(10, 10), direction="in", track_ref=2)
+    repo.add(line_id=1, area_id="lobby", ts=_at(10, 20), direction="out", track_ref=3)
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/entry-exit",
+        params={"area_id": "lobby", **_WINDOW},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert [p["value"] for p in response.json()["points"]] == [1.0]
+
+
+def test_waiting_history_returns_average_dwell_per_bucket(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = DwellRepository(session)
+    repo.add_closed(
+        zone_id=1, track_ref=1, enter_ts=_at(9, 50), leave_ts=_at(10, 0), dwell_s=30.0
+    )
+    repo.add_closed(
+        zone_id=1, track_ref=2, enter_ts=_at(10, 10), leave_ts=_at(10, 30), dwell_s=50.0
+    )
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/waiting",
+        params={"zone_id": 1, **_WINDOW},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert [p["value"] for p in response.json()["points"]] == [40.0]
+
+
+def test_alert_history_returns_zone_alerts(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = AlertRepository(session)
+    repo.create(
+        type="intrusion",
+        zone_id=1,
+        camera_id=None,
+        ts=_at(10, 0),
+        detail="intruder",
+        snapshot_url=None,
+    )
+    repo.create(
+        type="overcrowding",
+        zone_id=2,
+        camera_id=None,
+        ts=_at(10, 5),
+        detail="too many",
+        snapshot_url=None,
+    )
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/alerts", params={"zone_id": 1}, headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    assert [a["zone_id"] for a in response.json()] == [1]

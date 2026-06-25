@@ -1,0 +1,89 @@
+# Camera-Based Analytics — runtime configuration (per-environment).
+#
+# Secrets are supplied via environment variables (${VAR}) — never inline here.
+# Cameras, zones, and lines are NOT defined in this file: they are registered
+# and edited through the API (POST/PATCH /cameras, /zones, /lines) and persisted
+# in the database. Camera passwords are encrypted at rest with
+# CAMERA_CREDENTIALS_KEY. See HLD Sections 8.1, 9, and 14.
+
+database:
+  # SQL Server (production target): mssql+pyodbc://user:pass@host/db?driver=ODBC+Driver+18+for+SQL+Server
+  # SQLite (local/dev/tests):       sqlite:///./camera_analytics.db
+  url: "${DATABASE_URL}"
+  echo: false
+  pool_size: 10
+
+cache:
+  # Optional; required only when pipeline workers are scaled out across processes/hosts.
+  url: "${REDIS_URL}"            # empty -> in-process event bus + in-memory state only
+
+digital_twin:
+  push_url: "${DT_API_URL}"      # outbound push target; empty -> SSE-only
+  push_enabled: false
+  auth_header: "${DT_AUTH_HEADER}"
+  timeout_seconds: 5.0
+  max_retries: 3
+
+api:
+  prefix: "/api/v1"
+  auth_secret: "${API_AUTH_SECRET}"
+  auth_scheme: "jwt"             # jwt | api_key
+  cors_origins: ["*"]
+
+processing:
+  fps_tiers:                     # frame-rate per camera role (HLD 5.1)
+    entry_exit: 8
+    waiting: 6
+    occupancy: 2
+    heatmap: 1
+  default_tier: "occupancy"
+  stream_channel_sub: 102        # sub-stream channel for detection (~720p)
+  stream_channel_main: 101       # main stream channel for evidence snapshots
+  queue_maxsize: 4               # bounded drop-oldest queue depth per camera
+  rtsp_transport: "tcp"
+  reconnect_backoff_base_s: 1.0
+  reconnect_backoff_max_s: 30.0
+  watchdog_stale_seconds: 15.0
+
+detector:
+  model_path: "models/detector"
+  runtime: "openvino"            # openvino (CPU) | tensorrt (GPU)
+  person_class: 0
+  confidence: 0.30
+  iou: 0.45
+  imgsz: 640
+  batch_size: 4                  # frames batched across cameras
+
+tracker:
+  type: "bytetrack"
+  track_thresh: 0.5
+  match_thresh: 0.8
+  track_buffer: 30
+  frame_rate: 8
+  reid_enabled: true             # appearance Re-ID for cross-camera identity
+  reid_model_path: "models/reid"
+  reid_runtime: "onnx"           # onnx | torch
+  reid_similarity_threshold: 0.6
+  reid_gallery_ttl_seconds: 120
+
+state_machine:
+  confirm_enter_frames: 5
+  confirm_leave_frames: 8
+  alert_debounce_frames: 5
+  alert_cooldown_seconds: 30
+
+heatmap:
+  grid_cols: 64
+  grid_rows: 36
+  flush_interval_seconds: 60
+
+snapshots:
+  dir: "data/snapshots"
+
+retention:
+  occupancy_days: 90
+  crossing_days: 90
+  dwell_days: 90
+  heatmap_days: 180
+  alert_days: 365
+  snapshot_days: 30

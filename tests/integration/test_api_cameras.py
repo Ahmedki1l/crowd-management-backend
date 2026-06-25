@@ -1,0 +1,154 @@
+"""Integration tests for the camera registry router (HLD 8.1).
+
+Exercises the full HTTP surface through the ``TestClient`` + ``auth_headers``
+fixtures: auth enforcement, the write-only-password contract on create, the
+read paths, partial update, and the delete -> 404 lifecycle. The real
+``CameraService`` and DB are used end to end — no service mocks.
+"""
+
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+
+
+def _create_payload(**over) -> dict:
+    payload: dict = {
+        "name": "lobby-cam",
+        "area": "lobby",
+        "ip": "10.0.0.7",
+        "port": 554,
+        "username": "admin",
+        "password": "s3cret",
+        "roles": ["occupancy"],
+    }
+    payload.update(over)
+    return payload
+
+
+def test_list_cameras_without_auth_returns_401(client: TestClient) -> None:
+    response = client.get("/api/v1/cameras")
+
+    assert response.status_code == 401
+
+
+def test_create_camera_returns_201(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    )
+
+    assert response.status_code == 201
+
+
+def test_create_camera_response_omits_password(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    )
+
+    assert "password" not in response.json()
+
+
+def test_create_camera_with_password_sets_has_password_true(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    )
+
+    assert response.json()["has_password"] is True
+
+
+def test_create_camera_echoes_submitted_fields(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras",
+        json=_create_payload(name="dock-cam", area="dock"),
+        headers=auth_headers,
+    )
+
+    body = response.json()
+    assert (body["name"], body["area"], body["username"]) == (
+        "dock-cam",
+        "dock",
+        "admin",
+    )
+
+
+def test_list_cameras_returns_created_camera(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    client.post("/api/v1/cameras", json=_create_payload(), headers=auth_headers)
+
+    response = client.get("/api/v1/cameras", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert [c["name"] for c in response.json()] == ["lobby-cam"]
+
+
+def test_get_camera_by_id_returns_camera(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    created = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    ).json()
+
+    response = client.get(f"/api/v1/cameras/{created['id']}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["id"] == created["id"]
+
+
+def test_get_unknown_camera_returns_404(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get("/api/v1/cameras/9999", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_patch_camera_updates_field(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    created = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/cameras/{created['id']}",
+        json={"area": "warehouse"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["area"] == "warehouse"
+
+
+def test_delete_camera_returns_204(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    created = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    ).json()
+
+    response = client.delete(
+        f"/api/v1/cameras/{created['id']}", headers=auth_headers
+    )
+
+    assert response.status_code == 204
+
+
+def test_get_deleted_camera_returns_404(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    created = client.post(
+        "/api/v1/cameras", json=_create_payload(), headers=auth_headers
+    ).json()
+    client.delete(f"/api/v1/cameras/{created['id']}", headers=auth_headers)
+
+    response = client.get(f"/api/v1/cameras/{created['id']}", headers=auth_headers)
+
+    assert response.status_code == 404

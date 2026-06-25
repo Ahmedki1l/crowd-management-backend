@@ -1,0 +1,71 @@
+# Local / edge stack (HLD 12.4). The platform gateway/reverse proxy is external.
+# The same image runs as the API and as the pipeline workers (different command).
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}"
+      MSSQL_PID: "Developer"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  cache:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    command: ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DATABASE_URL: "mssql+pyodbc://sa:${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}@db:1433/camera_analytics?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+      REDIS_URL: "redis://cache:6379/0"
+      API_AUTH_SECRET: "${API_AUTH_SECRET:-change-me}"
+      CAMERA_CREDENTIALS_KEY: "${CAMERA_CREDENTIALS_KEY:?set CAMERA_CREDENTIALS_KEY in .env}"
+      DT_API_URL: "${DT_API_URL:-}"
+      CONFIG_PATH: "config/config.example.yaml"
+      LOG_LEVEL: "INFO"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models:ro
+      - snapshot_data:/app/data
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.main", "--workers"]
+    environment:
+      DATABASE_URL: "mssql+pyodbc://sa:${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}@db:1433/camera_analytics?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+      REDIS_URL: "redis://cache:6379/0"
+      CAMERA_CREDENTIALS_KEY: "${CAMERA_CREDENTIALS_KEY:?set CAMERA_CREDENTIALS_KEY in .env}"
+      DT_API_URL: "${DT_API_URL:-}"
+      CONFIG_PATH: "config/config.example.yaml"
+      LOG_LEVEL: "INFO"
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_started
+    volumes:
+      - ./models:/app/models:ro
+      - snapshot_data:/app/data
+    # GPU workers (TensorRT): uncomment and set detector.runtime=tensorrt
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+volumes:
+  mssql_data:
+  snapshot_data:
