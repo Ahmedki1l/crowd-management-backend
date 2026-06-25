@@ -1,0 +1,8 @@
+# Code owners — required reviewers for protected branches (e.g. production).
+#
+# Any pull request that changes files matching a pattern below must be approved
+# by the listed owner before it can be merged into a branch whose ruleset has
+# "require review from Code Owners" enabled. With "*" below, @Ahmedki1l owns the
+# whole repository, so only @Ahmedki1l can accept changes into production.
+
+*       @Ahmedki1l
