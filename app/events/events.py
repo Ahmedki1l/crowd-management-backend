@@ -26,7 +26,12 @@ class EventType(str, Enum):
     CAMERA_HEALTH = "camera_health"
 
 
-@dataclass(frozen=True, slots=True)
+# NOTE: deliberately NOT slots=True. The subclasses call zero-argument
+# ``super().payload()``; with ``slots=True`` the dataclass machinery recreates
+# the class and breaks the ``__class__`` cell that bare ``super()`` relies on,
+# raising TypeError on Python 3.11 (fixed in CPython 3.12). The service targets
+# 3.11+, so slots stays off here.
+@dataclass(frozen=True)
 class Event:
     """Base event. Subclasses set ``type`` and implement ``payload()``."""
 
@@ -46,7 +51,7 @@ class Event:
         return {"type": self.type.value, "ts": self.ts}
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class OccupancyUpdate(Event):
     zone_id: int = 0
     camera_id: int = 0
@@ -68,7 +73,7 @@ class OccupancyUpdate(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CrossingEvent(Event):
     line_id: int = 0
     area_id: str = ""
@@ -92,7 +97,7 @@ class CrossingEvent(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CountUpdate(Event):
     """Per-area IN/OUT/net (entry-exit). Emitted after each crossing."""
 
@@ -120,7 +125,7 @@ class CountUpdate(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class WaitingUpdate(Event):
     zone_id: int = 0
     current_waits: int = 0
@@ -142,7 +147,7 @@ class WaitingUpdate(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DwellClosed(Event):
     zone_id: int = 0
     track_ref: int = 0
@@ -166,7 +171,7 @@ class DwellClosed(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class AlertRaised(Event):
     alert_type: AlertType = AlertType.INTRUSION
     zone_id: int = 0
@@ -194,7 +199,7 @@ class AlertRaised(Event):
         }
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class HeatmapFlushed(Event):
     camera_id: int = 0
     ts_bucket: float = 0.0
@@ -204,7 +209,7 @@ class HeatmapFlushed(Event):
         return {**super().payload(), "camera_id": self.camera_id, "ts_bucket": self.ts_bucket}
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CameraHealth(Event):
     camera_id: int = 0
     fps: float = 0.0

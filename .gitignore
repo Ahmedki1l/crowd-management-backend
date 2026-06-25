@@ -8,6 +8,7 @@ dist/
 
 # Virtualenv
 .venv/
+.venv*/
 venv/
 
 # Env / secrets
