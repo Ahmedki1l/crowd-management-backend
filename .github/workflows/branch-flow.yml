@@ -1,0 +1,51 @@
+name: branch-flow
+
+# Enforce the promotion flow:  develop -> stage -> production
+#   - stage accepts pull requests only from develop
+#   - production accepts pull requests only from stage
+#
+# GitHub has no native "restrict PR source branch" setting, so this check reads
+# the PR's source (head) and target (base) branches and fails on a disallowed
+# pairing. It is wired as a REQUIRED status check on the stage and production
+# rulesets, so a PR from the wrong source cannot be merged.
+#
+# For pull_request events GitHub runs the workflow as defined on the PR's BASE
+# branch, so this file must exist on stage and production (it lives on all
+# branches for consistency).
+
+on:
+  pull_request:
+    branches: [stage, production]
+
+permissions:
+  contents: read
+
+jobs:
+  enforce-source:
+    name: enforce-source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR source branch
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          echo "Pull request: '$HEAD' -> '$BASE'"
+          case "$BASE" in
+            stage)
+              if [ "$HEAD" != "develop" ]; then
+                echo "::error::stage only accepts pull requests from 'develop' (source was '$HEAD')"
+                exit 1
+              fi
+              ;;
+            production)
+              if [ "$HEAD" != "stage" ]; then
+                echo "::error::production only accepts pull requests from 'stage' (source was '$HEAD')"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "No source restriction configured for base branch '$BASE'."
+              ;;
+          esac
+          echo "Allowed promotion: '$HEAD' -> '$BASE'"
