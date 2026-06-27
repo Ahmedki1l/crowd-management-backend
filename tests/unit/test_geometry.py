@@ -158,3 +158,35 @@ def test_no_crossing_returns_none() -> None:
         in_normal=Point(1.0, 0.0),
     )
     assert direction is None
+
+
+# --- diagonal-crossing regression (side-based, not movement-vector) --------- #
+# Shallow diagonal line a=(0,0) -> b=(100,50) with IN configured as "down" (+y).
+# A person walking left->right crosses from the IN (down) side to the OUT (up)
+# side. The old ``movement · in_normal`` test saw +y motion and wrongly returned
+# IN; the side-based test correctly returns OUT regardless of crossing angle.
+_DIAG_A = Point(0.0, 0.0)
+_DIAG_B = Point(100.0, 50.0)
+_DIAG_IN_NORMAL = Point(0.0, 1.0)
+
+
+def test_diagonal_crossing_out_uses_side_not_movement_vector() -> None:
+    direction = crossing_direction(
+        Point(10.0, 20.0),   # below the line -> IN (down) side
+        Point(90.0, 40.0),   # above the line -> OUT (up) side
+        _DIAG_A,
+        _DIAG_B,
+        in_normal=_DIAG_IN_NORMAL,
+    )
+    assert direction is CrossingDirection.OUT
+
+
+def test_diagonal_crossing_in_uses_side_not_movement_vector() -> None:
+    direction = crossing_direction(
+        Point(90.0, 40.0),   # above the line -> OUT (up) side
+        Point(10.0, 20.0),   # below the line -> IN (down) side
+        _DIAG_A,
+        _DIAG_B,
+        in_normal=_DIAG_IN_NORMAL,
+    )
+    assert direction is CrossingDirection.IN

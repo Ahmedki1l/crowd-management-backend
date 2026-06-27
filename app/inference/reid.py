@@ -208,8 +208,9 @@ class ReIDManager:
     Maintains a gallery of ``(global_id, embedding, last_seen)`` entries. For
     each tracked detection that carries an embedding, the manager finds the most
     cosine-similar *unused* gallery entry; if the best similarity meets the
-    threshold the existing ``global_id`` is reused (and its embedding refreshed),
-    otherwise a new ``global_id`` is allocated. Entries unseen for longer than the
+    threshold the existing ``global_id`` is reused (and its prototype blended
+    toward the new crop via an EMA, not overwritten), otherwise a new
+    ``global_id`` is allocated. Entries unseen for longer than the
     TTL are evicted on each call.
 
     Two safety properties make it usable as the *shared* identity source across
@@ -230,6 +231,7 @@ class ReIDManager:
         similarity_threshold: float,
         gallery_ttl_seconds: float,
         clock: Clock,
+        embedding_update_rate: float = 0.1,
     ) -> None:
         """Initialise an empty gallery.
 
@@ -240,10 +242,16 @@ class ReIDManager:
                 this many seconds.
             clock: Time source (epoch seconds); abstracted for deterministic
                 tests.
+            embedding_update_rate: EMA weight in ``[0, 1]`` for blending a matched
+                gallery prototype toward the new observation. ``0`` freezes the
+                prototype at first sight; ``1`` overwrites it every frame. A small
+                value (default ``0.1``) keeps the identity stable while still
+                adapting slowly to pose/lighting changes.
         """
         self._threshold = similarity_threshold
         self._ttl = gallery_ttl_seconds
         self._clock = clock
+        self._update_rate = embedding_update_rate
         self._gallery: list[_GalleryEntry] = []
         self._next_global_id = 1
         self._lock = threading.Lock()
@@ -309,7 +317,13 @@ class ReIDManager:
 
         if best_id is not None and best_sim >= self._threshold:
             entry = self._gallery[best_idx]
-            entry.embedding = query
+            # Blend the stored prototype toward the new observation (EMA) instead
+            # of overwriting it. Overwriting let a few above-threshold-but-wrong
+            # frames walk the gallery vector onto a different person, slowly
+            # merging two identities (undercounting occupancy/entry-exit). A slow
+            # EMA keeps the prototype anchored to the original identity.
+            blended = (1.0 - self._update_rate) * entry.embedding + self._update_rate * query
+            entry.embedding = self._as_unit_vector(blended)
             entry.last_seen = ts
             used_indices.add(best_idx)
             return best_id

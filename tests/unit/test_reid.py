@@ -154,3 +154,30 @@ def test_two_distinct_appearances_in_one_frame_get_distinct_ids() -> None:
 
     assert result[0].global_id != result[1].global_id
     assert manager.gallery_size == 2
+
+
+def test_matched_prototype_blends_toward_new_crop_not_overwrite() -> None:
+    # Regression: a matched gallery entry must EMA-blend toward the new crop, NOT
+    # be overwritten by it. Overwriting let a few above-threshold-but-wrong frames
+    # walk the prototype onto a different person, slowly merging two identities.
+    clock = FakeClock(start=1000.0)
+    manager = ReIDManager(
+        similarity_threshold=0.9,
+        gallery_ttl_seconds=60.0,
+        clock=clock,
+        embedding_update_rate=0.1,
+    )
+    base = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    # A matching but shifted observation (cosine ~0.91, just above threshold).
+    shifted = np.array([1.0, 0.45, 0.0, 0.0], dtype=np.float32)
+
+    first = manager.assign_global_ids(camera_id=1, tracked=[_tracked(1, base)], ts=1000.0)
+    second = manager.assign_global_ids(camera_id=1, tracked=[_tracked(2, shifted)], ts=1001.0)
+
+    assert second[0].global_id == first[0].global_id  # same identity reused
+    prototype = manager._gallery[0].embedding
+    # The prototype stayed anchored to the original identity (a tiny nudge only),
+    # instead of jumping to the shifted crop (which overwrite would have done:
+    # prototype[0]~0.91, prototype[1]~0.41).
+    assert prototype[0] > 0.97
+    assert prototype[1] < 0.10
