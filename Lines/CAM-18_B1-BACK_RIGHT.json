@@ -1,0 +1,24 @@
+{
+  "zones": [],
+  "lines": [
+    {
+      "name": "B1 back right",
+      "area_id": "o",
+      "dt_space_id": null,
+      "points": [
+        [
+          110.0,
+          524.0
+        ],
+        [
+          404.0,
+          470.0
+        ]
+      ],
+      "in_direction": [
+        0.1807,
+        0.9835
+      ]
+    }
+  ]
+}

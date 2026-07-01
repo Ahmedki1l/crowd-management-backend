@@ -1,0 +1,24 @@
+{
+  "zones": [],
+  "lines": [
+    {
+      "name": "B1 staircase",
+      "area_id": "b1_back",
+      "dt_space_id": null,
+      "points": [
+        [
+          908.0,
+          516.0
+        ],
+        [
+          1044.0,
+          580.0
+        ]
+      ],
+      "in_direction": [
+        -0.4258,
+        0.9048
+      ]
+    }
+  ]
+}

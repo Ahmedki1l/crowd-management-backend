@@ -1,0 +1,37 @@
+{
+  "zones": [
+    {
+      "name": "Claims & Recovery Workstation_GF",
+      "type": "occupancy",
+      "safe_limit": null,
+      "dt_space_id": null,
+      "polygon": [
+        [
+          988,
+          42
+        ],
+        [
+          62,
+          293
+        ],
+        [
+          254,
+          718
+        ],
+        [
+          1050,
+          704
+        ],
+        [
+          1224,
+          135
+        ],
+        [
+          986,
+          35
+        ]
+      ]
+    }
+  ],
+  "lines": []
+}

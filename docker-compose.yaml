@@ -24,7 +24,7 @@ services:
 
   api:
     build: .
-    command: ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8008"]
     environment:
       DATABASE_URL: "mssql+pyodbc://sa:${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}@db:1433/camera_analytics?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
       REDIS_URL: "redis://cache:6379/0"
@@ -34,7 +34,7 @@ services:
       CONFIG_PATH: "config/config.example.yaml"
       LOG_LEVEL: "INFO"
     ports:
-      - "8000:8000"
+      - "8008:8008"
     depends_on:
       db:
         condition: service_healthy

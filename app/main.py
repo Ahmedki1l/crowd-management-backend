@@ -26,7 +26,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     mode.add_argument("--worker", action="store_true", help="a single camera worker")
     parser.add_argument("--camera", type=int, default=None, help="camera id for --worker")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8008)
     return parser.parse_args(argv)
 
 

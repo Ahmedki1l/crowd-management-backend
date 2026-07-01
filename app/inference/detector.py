@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 # pair. OpenVINO runs INT8 on CPU; TensorRT runs FP16 on GPU.
 _RUNTIME_HINTS: dict[str, tuple[str, str]] = {
     "openvino": ("openvino", "cpu"),
-    "tensorrt": ("engine", "cuda:0"),
+    "tensorrt": ("engine", "cuda:0")
 }
 
 

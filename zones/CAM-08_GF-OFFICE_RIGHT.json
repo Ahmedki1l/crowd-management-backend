@@ -1,0 +1,37 @@
+{
+  "zones": [
+    {
+      "name": "Open Offices Area_GF",
+      "type": "occupancy",
+      "safe_limit": null,
+      "dt_space_id": null,
+      "polygon": [
+        [
+          490,
+          25
+        ],
+        [
+          1274,
+          181
+        ],
+        [
+          1240,
+          710
+        ],
+        [
+          10,
+          710
+        ],
+        [
+          188,
+          13
+        ],
+        [
+          487,
+          23
+        ]
+      ]
+    }
+  ],
+  "lines": []
+}

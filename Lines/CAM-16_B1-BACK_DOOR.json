@@ -1,0 +1,24 @@
+{
+  "zones": [],
+  "lines": [
+    {
+      "name": "B1 back door",
+      "area_id": "b1_back",
+      "dt_space_id": null,
+      "points": [
+        [
+          704.0,
+          328.0
+        ],
+        [
+          260.0,
+          544.0
+        ]
+      ],
+      "in_direction": [
+        0.4375,
+        0.8992
+      ]
+    }
+  ]
+}

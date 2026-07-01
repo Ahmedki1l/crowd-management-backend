@@ -66,10 +66,10 @@ python -c "from app.services.credentials import CredentialCipher; print(Credenti
 
 pytest                                        # 214 tests, green without cameras/GPU/models
 python scripts/seed_demo.py                   # register a demo camera + zones + line
-uvicorn app.api.app:app --reload             # API at http://localhost:8000
+uvicorn app.api.app:app --reload             # API at http://localhost:8008
 ```
 
-Open `http://localhost:8000/docs` for the live OpenAPI UI.
+Open `http://localhost:8008/docs` for the live OpenAPI UI.
 
 ### Run modes (HLD 12.5)
 

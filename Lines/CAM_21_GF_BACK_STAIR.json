@@ -1,0 +1,24 @@
+{
+  "zones": [],
+  "lines": [
+    {
+      "name": "GF back stair",
+      "area_id": "gf_back",
+      "dt_space_id": null,
+      "points": [
+        [
+          564.0,
+          488.0
+        ],
+        [
+          714.0,
+          580.0
+        ]
+      ],
+      "in_direction": [
+        0.5228,
+        -0.8524
+      ]
+    }
+  ]
+}

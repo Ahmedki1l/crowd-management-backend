@@ -1,0 +1,45 @@
+{
+  "zones": [
+    {
+      "name": "Office Right Area_GF",
+      "type": "occupancy",
+      "safe_limit": null,
+      "dt_space_id": null,
+      "polygon": [
+        [
+          574,
+          7
+        ],
+        [
+          40,
+          167
+        ],
+        [
+          59,
+          718
+        ],
+        [
+          1275,
+          712
+        ],
+        [
+          1273,
+          129
+        ],
+        [
+          894,
+          119
+        ],
+        [
+          828,
+          188
+        ],
+        [
+          582,
+          9
+        ]
+      ]
+    }
+  ],
+  "lines": []
+}

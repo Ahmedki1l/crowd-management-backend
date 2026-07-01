@@ -47,7 +47,7 @@ processing:
 
 detector:
   model_path: "models/detector"
-  runtime: "openvino"            # openvino (CPU) | tensorrt (GPU)
+  runtime: "openvino"    #"pytorch"             # openvino (CPU) | tensorrt (GPU)
   person_class: 0
   confidence: 0.30
   iou: 0.45
@@ -60,9 +60,9 @@ tracker:
   match_thresh: 0.8
   track_buffer: 30
   frame_rate: 8
-  reid_enabled: true             # appearance Re-ID for cross-camera identity
+  reid_enabled: false             # appearance Re-ID for cross-camera identity
   reid_model_path: "models/reid"
-  reid_runtime: "onnx"           # onnx | torch
+  reid_runtime: "torch"           # onnx | torch
   reid_similarity_threshold: 0.6
   reid_gallery_ttl_seconds: 120
 

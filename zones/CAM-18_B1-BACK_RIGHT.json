@@ -1,0 +1,29 @@
+{
+  "zones": [
+    {
+      "name": "B1 Back Right",
+      "type": "occupancy",
+      "safe_limit": null,
+      "dt_space_id": null,
+      "polygon": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          1278.0,
+          0.0
+        ],
+        [
+          1278.0,
+          718.0
+        ],
+        [
+          0.0,
+          718.0
+        ]
+      ]
+    }
+  ],
+  "lines": []
+}

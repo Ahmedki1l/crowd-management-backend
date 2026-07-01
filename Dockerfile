@@ -40,11 +40,11 @@ COPY . .
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
-EXPOSE 8000
+EXPOSE 8008
 
 # Default = API + engine (small deployment). Override for workers:
 #   command: ["python", "-m", "app.main", "--workers"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)" || exit 1
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8008/health').status==200 else 1)" || exit 1
 
-CMD ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8008"]

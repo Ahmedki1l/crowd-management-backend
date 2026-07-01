@@ -1,0 +1,41 @@
+{
+  "zones": [
+    {
+      "name": "Left Hallway_B2-Left Passway",
+      "type": "occupancy",
+      "safe_limit": null,
+      "dt_space_id": null,
+      "polygon": [
+        [
+          31,
+          2
+        ],
+        [
+          3,
+          48
+        ],
+        [
+          5,
+          710
+        ],
+        [
+          743,
+          712
+        ],
+        [
+          759,
+          638
+        ],
+        [
+          816,
+          108
+        ],
+        [
+          34,
+          3
+        ]
+      ]
+    }
+  ],
+  "lines": []
+}

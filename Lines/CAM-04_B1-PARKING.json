@@ -1,0 +1,24 @@
+{
+  "zones": [],
+  "lines": [
+    {
+      "name": "B1 parking door",
+      "area_id": "b1_parking",
+      "dt_space_id": null,
+      "points": [
+        [
+          40.0,
+          472.0
+        ],
+        [
+          220.0,
+          434.0
+        ]
+      ],
+      "in_direction": [
+        -0.2066,
+        -0.9784
+      ]
+    }
+  ]
+}

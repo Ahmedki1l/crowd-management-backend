@@ -16,6 +16,10 @@ from typing import Any
 import yaml
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from app.config.schema import AppConfig
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")

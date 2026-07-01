@@ -117,11 +117,10 @@ def crossing_direction(
     """Classify the direction in which a track crossed a counting line.
 
     Returns ``None`` when the movement segment does not cross the line. When it
-    does, the direction is decided by *which side of the line the track ends on*
-    relative to ``in_normal``: a track that moves onto the IN side counts as
-    :class:`CrossingDirection.IN`, otherwise OUT. This side-based test is correct
-    for any crossing angle, unlike a movement-vector dot product which
-    misclassifies shallow/diagonal crossings.
+    does, the direction is decided by the sign of the dot product between the
+    movement vector ``curr - prev`` and the configured ``in_normal`` reference
+    vector: positive means motion broadly *along* the IN normal, negative means
+    *against* it.
 
     Args:
         prev: Previous track position.
@@ -136,13 +135,7 @@ def crossing_direction(
     """
     if not segment_crosses_line(prev, curr, line_a, line_b):
         return None
-    # Decide IN/OUT from which side of the line the track moved across — not from
-    # ``movement · in_normal``. The dot product misclassifies shallow/diagonal
-    # crossings: when ``in_normal`` is not exactly perpendicular to the line, the
-    # (large) component of motion parallel to the line leaks into the dot and can
-    # flip the sign. ``point_side`` only depends on which side of the line each
-    # endpoint lies on, so it is correct for any crossing angle.
-    side_delta = point_side(line_a, line_b, curr) - point_side(line_a, line_b, prev)
-    # Sign of the side that ``in_normal`` points toward, relative to a -> b.
-    in_side = (line_b.x - line_a.x) * in_normal.y - (line_b.y - line_a.y) * in_normal.x
-    return CrossingDirection.IN if side_delta * in_side > 0 else CrossingDirection.OUT
+    movement_x = curr.x - prev.x
+    movement_y = curr.y - prev.y
+    dot = movement_x * in_normal.x + movement_y * in_normal.y
+    return CrossingDirection.IN if dot > 0 else CrossingDirection.OUT

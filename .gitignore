@@ -21,8 +21,8 @@ models/detector/*
 models/reid/*
 !models/detector/.gitkeep
 !models/reid/.gitkeep
-*.db
-*.sqlite3
+# *.db
+# *.sqlite3
 
 # Tooling
 .pytest_cache/
