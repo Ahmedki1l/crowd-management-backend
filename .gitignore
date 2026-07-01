@@ -15,12 +15,12 @@ venv/
 .env
 *.key
 
-# Data / models / runtime
-data/
-models/detector/*
-models/reid/*
-!models/detector/.gitkeep
-!models/reid/.gitkeep
+## Data / models / runtime
+#data/
+#models/detector/*
+#models/reid/*
+#!models/detector/.gitkeep
+#!models/reid/.gitkeep
 # *.db
 # *.sqlite3
 
