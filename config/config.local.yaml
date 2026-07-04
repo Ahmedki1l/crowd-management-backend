@@ -1,0 +1,52 @@
+# Local runtime config — B1 waiting-area snapshot-pull deployment.
+# Loaded via CONFIG_PATH=config/config.local.yaml. Not committed (see .gitignore).
+database:
+  url: "${DATABASE_URL}"            # sqlite:///./camera_analytics.db from .env
+
+api:
+  prefix: "/api/v1"
+  auth_secret: "${API_AUTH_SECRET}"
+  auth_scheme: "jwt"
+  cors_origins: ["*"]
+
+processing:
+  # Only these camera IPs pull feed (the 5 B1-OFFICE = waiting-area cameras).
+  camera_allowlist_ips:
+    - "10.1.13.43"   # CAM-24 (B1-OFFICE)
+    - "10.1.13.45"   # CAM-26 (B1-OFFICE)
+    - "10.1.13.39"   # CAM-20 (B1-OFFICE)
+    - "10.1.13.40"   # CAM-21 (B1-OFFICE)
+    - "10.1.13.44"   # CAM-25 (B1-OFFICE)
+    - "10.1.13.46"   # CAM-27 (B1-WAITING AREA)
+    # B2 office area (b2-office-area)
+    - "10.1.13.37"   # CAM-18 (B2-OFFICE)
+    - "10.1.13.41"   # CAM-22 (B2-OFFICE)
+    - "10.1.13.50"   # CAM-31 (B2-OFFICE)
+    - "10.1.13.52"   # CAM-33 (B2-OFFICE)
+    # GF waiting area (gf-waiting-area)
+    - "10.1.13.20"   # CAM-02 (GF-WAITING)
+    # FF waiting area (ff-waiting-area)
+    - "10.1.13.34"   # CAM-15 (FF-WAITING)
+    # Main entrance gate — entry/exit line-crossing (continuous RTSP, not snapshot)
+    - "10.1.13.21"   # CAM-01 MAIN DOOR
+  snapshot_pull:
+    roles: ["occupancy"]           # occupancy cameras pull HTTP stills (CPU-cheap)
+    interval_s: 3.0
+    http_port: 80
+    scheme: "http"
+    path_template: "/ISAPI/Streaming/channels/{channel}/picture"
+    auth: "digest"
+    timeout_s: 5.0
+
+detector:
+  model_path: "yolo11n_openvino_model"   # nano @1280 (FP16) for small/distant people
+  runtime: "openvino"
+  confidence: 0.25
+  imgsz: 1280
+
+tracker:
+  reid_enabled: false
+
+state_machine:
+  confirm_enter_frames: 1          # responsive at 0.5 fps snapshot cadence
+  confirm_leave_frames: 2

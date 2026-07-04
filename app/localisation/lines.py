@@ -34,16 +34,30 @@ class LineCrossingDetector:
     The last observed ground point (bbox bottom-centre) of each track is kept
     between frames. On a track's first appearance no crossing can be reported —
     only its position is recorded for the next frame.
+
+    A track's last point is retained for up to ``max_gap_frames`` consecutive
+    frames of absence rather than dropped on first miss. Detectors flicker where
+    a person is small or in shadow (e.g. exiting *away* from the camera into a
+    dark doorway); without this tolerance a single dropped frame right at the
+    line orphans the track and the crossing is lost. Retaining the point across
+    a brief gap lets the movement segment still straddle the line. The window is
+    kept short so a reused track id cannot manufacture a stale long-jump crossing
+    (the tracker keeps lost ids buffered far longer than this).
     """
 
-    def __init__(self, lines: Sequence[LineSpec]) -> None:
+    def __init__(self, lines: Sequence[LineSpec], max_gap_frames: int = 5) -> None:
         """Initialise the detector.
 
         Args:
             lines: Counting-line specifications for the camera. May be empty.
+            max_gap_frames: Consecutive frames a track may be missing before its
+                last point is forgotten. Bridges brief detection dropouts so a
+                crossing survives them; must stay small to avoid stale crossings.
         """
         self._lines: tuple[LineSpec, ...] = tuple(lines)
         self._last_point: dict[int, Point] = {}
+        self._misses: dict[int, int] = {}
+        self._max_gap_frames = max_gap_frames
 
     def update(
         self, tracked: Sequence[TrackedDetection], ts: float
@@ -52,8 +66,9 @@ class LineCrossingDetector:
 
         For every track with a recorded previous point, each line is tested for a
         segment intersection; a crossing is emitted when one occurs. New tracks
-        produce no crossing on first sight. Tracks that disappear are dropped so
-        their stale positions cannot create spurious long-jump crossings later.
+        produce no crossing on first sight. Tracks missing for more than
+        ``max_gap_frames`` consecutive frames are dropped so their stale
+        positions cannot create spurious long-jump crossings later.
 
         Args:
             tracked: Tracked detections in the current frame.
@@ -73,8 +88,9 @@ class LineCrossingDetector:
             if prev is not None and self._lines:
                 crossings.extend(self._detect_for_track(track_id, prev, curr, ts))
             self._last_point[track_id] = curr
+            self._misses.pop(track_id, None)  # present this frame: reset its gap
 
-        self._prune(seen_track_ids)
+        self._age_and_prune(seen_track_ids)
         return crossings
 
     def _detect_for_track(
@@ -101,8 +117,20 @@ class LineCrossingDetector:
             )
         return results
 
-    def _prune(self, seen_track_ids: set[int]) -> None:
-        """Forget tracks absent from the current frame to avoid stale segments."""
-        stale = [tid for tid in self._last_point if tid not in seen_track_ids]
-        for track_id in stale:
-            del self._last_point[track_id]
+    def _age_and_prune(self, seen_track_ids: set[int]) -> None:
+        """Age out tracks absent this frame, forgetting them past the gap window.
+
+        A track missing this frame has its miss counter incremented; only once it
+        exceeds ``max_gap_frames`` is its last point forgotten. This bridges brief
+        detection dropouts (so a crossing survives them) while still discarding
+        genuinely departed tracks before a stale segment can be formed.
+        """
+        for track_id in list(self._last_point):
+            if track_id in seen_track_ids:
+                continue
+            misses = self._misses.get(track_id, 0) + 1
+            if misses > self._max_gap_frames:
+                del self._last_point[track_id]
+                self._misses.pop(track_id, None)
+            else:
+                self._misses[track_id] = misses

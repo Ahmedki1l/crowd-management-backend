@@ -13,11 +13,13 @@ from app.domain.models import CameraRole
 class CameraCreate(BaseModel):
     name: str
     area: str
+    floor: str | None = None
     ip: str
     port: int = 554
     username: str
     password: str = Field(..., description="RTSP password; stored encrypted, never returned")
     roles: list[CameraRole] = Field(default_factory=lambda: [CameraRole.OCCUPANCY])
+    imgsz: int | None = None
     stream_channel_sub: int = 102
     stream_channel_main: int = 101
     enabled: bool = True
@@ -26,11 +28,13 @@ class CameraCreate(BaseModel):
 class CameraUpdate(BaseModel):
     name: str | None = None
     area: str | None = None
+    floor: str | None = None
     ip: str | None = None
     port: int | None = None
     username: str | None = None
     password: str | None = Field(default=None, description="Set to rotate; never returned")
     roles: list[CameraRole] | None = None
+    imgsz: int | None = None
     stream_channel_sub: int | None = None
     stream_channel_main: int | None = None
     enabled: bool | None = None
@@ -44,10 +48,12 @@ class CameraOut(BaseModel):
     id: int
     name: str
     area: str
+    floor: str | None = None
     ip: str
     port: int
     username: str
     roles: list[str]
+    imgsz: int | None = None
     stream_channel_sub: int
     stream_channel_main: int
     enabled: bool

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.config.schema import ProcessingConfig
@@ -53,6 +54,56 @@ class CaptureThread(Protocol):
     def fps_estimate(self) -> float: ...
     @property
     def last_frame_ts(self) -> float | None: ...
+
+
+class _CaptureHealthMixin:
+    """Shared fps estimate + staleness watchdog for real capture threads.
+
+    A host thread maintains ``_last_frame_ts`` / ``_last_emit_ts`` /
+    ``_recent_intervals`` as it emits frames; this mixin turns them into the
+    :class:`CaptureThread` health surface. The host must set ``_clock`` and
+    ``_watchdog_stale_seconds``. Kept separate from :class:`FrameSourceCaptureThread`
+    (finite test clips) which has no real-time rate to report.
+    """
+
+    _clock: Clock
+    _watchdog_stale_seconds: float
+    _last_frame_ts: float | None
+    _last_emit_ts: float | None
+    _recent_intervals: list[float]
+
+    def is_healthy(self) -> bool:
+        """Return whether a frame arrived within ``watchdog_stale_seconds``.
+
+        Returns ``False`` until the first frame and once the source goes stale.
+        """
+        if self._last_frame_ts is None:
+            return False
+        return (self._clock.now() - self._last_frame_ts) < self._watchdog_stale_seconds
+
+    @property
+    def fps_estimate(self) -> float:
+        """Smoothed measured emit rate; ``0.0`` until at least two frames emitted."""
+        if not self._recent_intervals:
+            return 0.0
+        avg_interval = sum(self._recent_intervals) / len(self._recent_intervals)
+        if avg_interval <= 0.0:
+            return 0.0
+        return 1.0 / avg_interval
+
+    @property
+    def last_frame_ts(self) -> float | None:
+        """Epoch seconds of the most recently emitted frame, or ``None``."""
+        return self._last_frame_ts
+
+    def _record_emit_interval(self, now: float) -> None:
+        """Track inter-emit intervals for the rolling fps estimate."""
+        if self._last_emit_ts is not None:
+            interval = now - self._last_emit_ts
+            if interval > 0.0:
+                self._recent_intervals.append(interval)
+                if len(self._recent_intervals) > _FPS_WINDOW:
+                    self._recent_intervals.pop(0)
 
 
 class FrameSourceCaptureThread(threading.Thread):
@@ -107,7 +158,7 @@ class FrameSourceCaptureThread(threading.Thread):
         return self._last_frame_ts
 
 
-class RtspCaptureThread(threading.Thread):
+class RtspCaptureThread(_CaptureHealthMixin, threading.Thread):
     """Background thread that decodes one RTSP stream into a frame queue.
 
     The thread is fault-tolerant: read/open failures are logged and retried with
@@ -146,6 +197,7 @@ class RtspCaptureThread(threading.Thread):
         self._target_fps = target_fps
         self._min_interval = 1.0 / target_fps if target_fps > 0 else 0.0
         self._cfg = processing_cfg
+        self._watchdog_stale_seconds = processing_cfg.watchdog_stale_seconds
         self._clock = clock
         self._queue = queue
         self._role = role
@@ -166,38 +218,6 @@ class RtspCaptureThread(threading.Thread):
         :meth:`~threading.Thread.join` afterwards if you need to wait.
         """
         self._stop_event.set()
-
-    def is_healthy(self) -> bool:
-        """Return whether a frame has arrived recently enough to be considered live.
-
-        Returns:
-            ``True`` if a frame was received within ``watchdog_stale_seconds``;
-            ``False`` if the stream has gone stale or no frame has arrived yet.
-        """
-        if self._last_frame_ts is None:
-            return False
-        age = self._clock.now() - self._last_frame_ts
-        return age < self._cfg.watchdog_stale_seconds
-
-    @property
-    def fps_estimate(self) -> float:
-        """Smoothed measured frame rate over the recent emit window.
-
-        Returns:
-            Estimated frames-per-second pushed to the queue, or ``0.0`` until at
-            least two frames have been emitted.
-        """
-        if not self._recent_intervals:
-            return 0.0
-        avg_interval = sum(self._recent_intervals) / len(self._recent_intervals)
-        if avg_interval <= 0.0:
-            return 0.0
-        return 1.0 / avg_interval
-
-    @property
-    def last_frame_ts(self) -> float | None:
-        """Epoch seconds of the most recently decoded frame, or ``None``."""
-        return self._last_frame_ts
 
     # ------------------------------------------------------------------ #
     # Thread body
@@ -321,15 +341,6 @@ class RtspCaptureThread(threading.Thread):
         self._frame_idx += 1
         self._queue.put(packet)
 
-    def _record_emit_interval(self, now: float) -> None:
-        """Track inter-emit intervals for the rolling fps estimate."""
-        if self._last_emit_ts is not None:
-            interval = now - self._last_emit_ts
-            if interval > 0.0:
-                self._recent_intervals.append(interval)
-                if len(self._recent_intervals) > _FPS_WINDOW:
-                    self._recent_intervals.pop(0)
-
     def _sleep_backoff(self, backoff: float) -> float:
         """Wait ``backoff`` seconds (interruptible) and return the next backoff.
 
@@ -372,3 +383,122 @@ class RtspCaptureThread(threading.Thread):
                 extra={"camera_id": self._camera_id, "event": "rtsp_release_error"},
             )
         return None
+
+
+class SnapshotCaptureThread(_CaptureHealthMixin, threading.Thread):
+    """Poll a still image every ``interval_s`` and push it as a frame (HLD 6.1).
+
+    The CPU-cheap alternative to :class:`RtspCaptureThread` for low-rate roles
+    (e.g. occupancy) on GPU-less hardware: instead of continuously decoding an
+    H.264 sub-stream, it fetches one JPEG per interval via an injected
+    ``frame_provider`` (an HTTP snapshot client + decoder wired in the engine),
+    so decode cost scales with the pull rate, not the stream's native fps.
+
+    Resilience mirrors the RTSP contract: a failed or empty fetch is logged and
+    skipped — the thread never exits on a transient fault, so the engine
+    supervisor never needs to restart it and staleness surfaces only via
+    :meth:`is_healthy` / ``CameraHealth``. A ``frame_provider`` returning
+    ``None`` is a skipped tick, **not** source exhaustion.
+    """
+
+    def __init__(
+        self,
+        *,
+        camera_id: int,
+        frame_provider: Callable[[], np.ndarray | None],
+        queue: BoundedFrameQueue,
+        clock: Clock,
+        interval_s: float,
+        watchdog_stale_seconds: float,
+        role: CameraRole,
+        on_close: Callable[[], None] | None = None,
+    ) -> None:
+        """Configure the thread (does not start it).
+
+        Args:
+            camera_id: Camera id stamped onto every emitted packet.
+            frame_provider: Zero-arg callable returning a freshly fetched BGR
+                image, or ``None`` when this tick's fetch/decode failed.
+            queue: Drop-oldest queue the frames are pushed into.
+            clock: Time source; ``clock.now()`` stamps each packet.
+            interval_s: Seconds between pull attempts (the effective frame rate).
+            watchdog_stale_seconds: Age after which ``is_healthy`` reports stale.
+            role: Camera role tag carried on each packet.
+            on_close: Optional cleanup called once when the loop exits — used to
+                release the frame provider's resources (e.g. the HTTP client) so a
+                pipeline restart does not leak them.
+        """
+        super().__init__(name=f"snapshot-capture-{camera_id}", daemon=True)
+        self._camera_id = camera_id
+        self._frame_provider = frame_provider
+        self._queue = queue
+        self._clock = clock
+        self._interval_s = max(interval_s, 0.0)
+        self._watchdog_stale_seconds = watchdog_stale_seconds
+        self._role = role
+        self._on_close = on_close
+
+        self._stop_event = threading.Event()
+        self._frame_idx = 0
+        self._last_frame_ts: float | None = None
+        self._last_emit_ts: float | None = None
+        self._recent_intervals: list[float] = []
+
+    def stop(self) -> None:
+        """Signal the poll loop to exit at the next opportunity. Idempotent."""
+        self._stop_event.set()
+
+    def run(self) -> None:
+        """Poll loop: fetch a frame, enqueue it, wait ``interval_s``, repeat.
+
+        Runs until :meth:`stop`. Every fetch fault is caught inside
+        :meth:`_capture_once`, so the loop only ends on the stop signal. The
+        ``on_close`` cleanup runs once on exit, however the loop ends.
+        """
+        try:
+            while not self._stop_event.is_set():
+                self._capture_once()
+                # Interruptible wait: stop() aborts it immediately.
+                if self._stop_event.wait(timeout=self._interval_s):
+                    break
+        finally:
+            if self._on_close is not None:
+                self._on_close()
+
+    def _capture_once(self) -> None:
+        """Fetch one still and enqueue it; a failed fetch is logged and skipped.
+
+        On success the frame timestamp and fps/health bookkeeping are updated; on
+        ``None`` or an exception nothing is emitted, so ``is_healthy`` goes stale
+        via the watchdog rather than the thread dying.
+        """
+        try:
+            image = self._frame_provider()
+        except Exception:  # noqa: BLE001 - a provider fault must not kill the loop
+            logger.exception(
+                "snapshot fetch raised; skipping tick",
+                extra={"camera_id": self._camera_id, "event": "snapshot_fetch_error"},
+            )
+            return
+
+        if image is None:
+            logger.warning(
+                "snapshot fetch returned no image; skipping tick",
+                extra={"camera_id": self._camera_id, "event": "snapshot_fetch_empty"},
+            )
+            return
+
+        now = self._clock.now()
+        self._record_emit_interval(now)
+        self._last_frame_ts = now
+        self._last_emit_ts = now
+        self._queue.put(
+            FramePacket(
+                camera_id=self._camera_id,
+                frame_idx=self._frame_idx,
+                ts=now,
+                image=image,
+                role=self._role,
+            )
+        )
+        self._frame_idx += 1

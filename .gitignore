@@ -14,8 +14,14 @@ venv/
 # Env / secrets
 .env
 *.key
+api_token.txt
 
 ## Data / models / runtime
+validation_snapshots/
+# config/config.local.yaml is tracked so the runtime config (allowlist, model
+# path, tuning) syncs to other deployment machines on pull. Secrets stay in .env.
+camera_analytics.db.backup-*
+camera_analytics.db.pre-restore*
 #data/
 #models/detector/*
 #models/reid/*

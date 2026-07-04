@@ -14,12 +14,17 @@ class Camera(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     area: Mapped[str] = mapped_column(String(128), index=True)
+    # Physical floor (e.g. "B1", "Ground Floor"). Groups zones/spaces for the
+    # per-floor occupancy rollup. Nullable: unset means "not assigned to a floor".
+    floor: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     ip: Mapped[str] = mapped_column(String(64))
     port: Mapped[int] = mapped_column(Integer, default=554)
     username: Mapped[str] = mapped_column(String(128))
     # AES-256-GCM ciphertext of the RTSP password; key held outside the DB.
     password_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     roles: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Per-camera detector input size; None => use the global detector.imgsz.
+    imgsz: Mapped[int | None] = mapped_column(Integer, nullable=True)
     stream_channel_sub: Mapped[int] = mapped_column(Integer, default=102)
     stream_channel_main: Mapped[int] = mapped_column(Integer, default=101)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

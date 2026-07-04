@@ -86,6 +86,7 @@ def to_camera_spec(
         stream_channel_sub=camera.stream_channel_sub,
         stream_channel_main=camera.stream_channel_main,
         enabled=camera.enabled,
+        imgsz=camera.imgsz,
         zones=tuple(to_zone_spec(zone) for zone in zones),
         lines=tuple(to_line_spec(line) for line in lines),
     )

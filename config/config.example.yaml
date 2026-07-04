@@ -37,6 +37,10 @@ processing:
     occupancy: 2
     heatmap: 1
   default_tier: "occupancy"
+  camera_allowlist_ips: []       # if non-empty, ONLY these camera IPs pull feed
+                                 # (e.g. ["10.1.13.21", "10.1.13.39"]); empty =
+                                 # every enabled camera. A camera must also be
+                                 # enabled. `--worker --camera N` bypasses this.
   stream_channel_sub: 102        # sub-stream channel for detection (~720p)
   stream_channel_main: 101       # main stream channel for evidence snapshots
   queue_maxsize: 4               # bounded drop-oldest queue depth per camera
@@ -44,6 +48,18 @@ processing:
   reconnect_backoff_base_s: 1.0
   reconnect_backoff_max_s: 30.0
   watchdog_stale_seconds: 15.0
+  snapshot_pull:                 # CPU-only deployments: pull HTTP stills instead of
+                                 # decoding RTSP for the listed roles (decode cost then
+                                 # scales with interval_s, not the stream's native fps).
+    roles: []                    # e.g. ["occupancy"] to snapshot occupancy cameras;
+                                 # empty (default) keeps every camera on RTSP.
+    interval_s: 2.0              # seconds between still pulls (the effective frame rate)
+    http_port: 80                # camera HTTP port for the snapshot endpoint
+    scheme: "http"               # http | https
+    path_template: "/ISAPI/Streaming/channels/{channel}/picture"  # {channel}=stream_channel_sub
+    auth: "digest"               # digest | basic
+    timeout_s: 5.0
+    verify_tls: true             # https only
 
 detector:
   model_path: "models/detector"

@@ -108,3 +108,42 @@ def test_track_not_reaching_line_produces_no_crossing(
     crossings = detector.update([_person_at(1, 600.0)], ts=fake_clock.now())
 
     assert crossings == []
+
+
+def test_crossing_survives_brief_detection_gap(fake_clock: FakeClock) -> None:
+    """A detection dropout within the gap window must not lose the crossing.
+
+    The exiting person (moving away into a dark doorway) flickers: seen left of
+    the line, missing for two frames, then seen right of it. With gap tolerance
+    the retained left point still lets the segment straddle the line.
+    """
+    detector = LineCrossingDetector([make_line_spec()], max_gap_frames=5)
+
+    detector.update([_person_at(1, _LEFT_GROUND_X)], ts=fake_clock.now())
+    for _ in range(2):  # two frames where the detector saw nobody
+        fake_clock.advance(1.0)
+        detector.update([], ts=fake_clock.now())
+    fake_clock.advance(1.0)
+    crossings = detector.update([_person_at(1, _RIGHT_GROUND_X)], ts=fake_clock.now())
+
+    assert len(crossings) == 1
+    assert crossings[0].direction is CrossingDirection.IN
+    assert crossings[0].track_id == 1
+
+
+def test_track_absent_beyond_gap_window_is_forgotten(fake_clock: FakeClock) -> None:
+    """Past the gap window the stale point is dropped, so no long-jump crossing.
+
+    A track id reused for a different person after a long absence must not be
+    joined to the departed person's last point across the counting line.
+    """
+    detector = LineCrossingDetector([make_line_spec()], max_gap_frames=2)
+
+    detector.update([_person_at(1, _LEFT_GROUND_X)], ts=fake_clock.now())
+    for _ in range(3):  # absent for longer than max_gap_frames
+        fake_clock.advance(1.0)
+        detector.update([], ts=fake_clock.now())
+    fake_clock.advance(1.0)
+    crossings = detector.update([_person_at(1, _RIGHT_GROUND_X)], ts=fake_clock.now())
+
+    assert crossings == []

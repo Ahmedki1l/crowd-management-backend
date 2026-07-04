@@ -45,9 +45,34 @@ class FpsTiers(BaseModel):
         return float(getattr(self, role, self.occupancy))
 
 
+class SnapshotPullConfig(BaseModel):
+    """Still-image (HTTP snapshot) capture for CPU-constrained deployments.
+
+    Cameras whose :attr:`~app.domain.models.CameraSpec.fps_role` is listed in
+    ``roles`` pull a single JPEG every ``interval_s`` over HTTP instead of holding
+    a continuously-decoding RTSP connection. Decode cost then scales with the pull
+    rate, not the stream's native frame rate — the key lever on a GPU-less box.
+    Empty ``roles`` (the default) keeps every camera on RTSP, so this is fully
+    backward-compatible.
+    """
+
+    roles: list[str] = Field(default_factory=list)
+    interval_s: float = 2.0
+    http_port: int = 80
+    scheme: str = "http"  # http | https
+    # ``{channel}`` is substituted with the camera's sub-stream channel.
+    path_template: str = "/ISAPI/Streaming/channels/{channel}/picture"
+    auth: str = "digest"  # digest | basic
+    timeout_s: float = 5.0
+    verify_tls: bool = True  # only consulted when scheme is https
+
+
 class ProcessingConfig(BaseModel):
     fps_tiers: FpsTiers = Field(default_factory=FpsTiers)
     default_tier: str = "occupancy"
+    # When non-empty, ONLY cameras whose IP is listed get a pipeline (feed pull);
+    # every other camera is skipped. Empty (default) runs every enabled camera.
+    camera_allowlist_ips: list[str] = Field(default_factory=list)
     stream_channel_sub: int = 102
     stream_channel_main: int = 101
     queue_maxsize: int = 4
@@ -55,6 +80,7 @@ class ProcessingConfig(BaseModel):
     reconnect_backoff_base_s: float = 1.0
     reconnect_backoff_max_s: float = 30.0
     watchdog_stale_seconds: float = 15.0
+    snapshot_pull: SnapshotPullConfig = Field(default_factory=SnapshotPullConfig)
 
 
 class DetectorConfig(BaseModel):

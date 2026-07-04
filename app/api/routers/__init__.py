@@ -26,6 +26,7 @@ from app.api.routers.occupancy import router as occupancy_router
 from app.api.routers.snapshots import router as snapshots_router
 from app.api.routers.state import router as state_router
 from app.api.routers.stream import router as stream_router
+from app.api.routers.tools import router as tools_router
 from app.api.routers.waiting import router as waiting_router
 from app.api.routers.zones import router as zones_router
 
@@ -43,6 +44,7 @@ all_routers: list[APIRouter] = [
     history_router,
     stream_router,
     snapshots_router,
+    tools_router,
     health_router,
 ]
 

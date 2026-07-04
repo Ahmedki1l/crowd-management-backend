@@ -179,6 +179,8 @@ class CameraSpec:
     stream_channel_sub: int
     stream_channel_main: int
     enabled: bool = True
+    # Per-camera detector input size; None => use the global detector.imgsz.
+    imgsz: int | None = None
     zones: tuple[ZoneSpec, ...] = field(default_factory=tuple)
     lines: tuple[LineSpec, ...] = field(default_factory=tuple)
 

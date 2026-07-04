@@ -248,6 +248,7 @@ class Engine:
 
 def _load_camera_specs(
     camera_ids: list[int] | None,
+    allowlist_ips: set[str],
 ) -> list[tuple[CameraSpec, str]]:
     """Load the (spec, password) pairs for the cameras the engine should run.
 
@@ -258,6 +259,8 @@ def _load_camera_specs(
     Args:
         camera_ids: Explicit camera ids to run, or ``None`` to run every enabled
             camera.
+        allowlist_ips: When non-empty (and ``camera_ids`` is ``None``), restrict
+            the enabled cameras to those whose IP is in this set.
 
     Returns:
         The resolved ``(CameraSpec, password)`` pairs, in id order.
@@ -265,7 +268,7 @@ def _load_camera_specs(
     pairs: list[tuple[CameraSpec, str]] = []
     with session_scope() as session:
         service = CameraService(session)
-        target_ids = _resolve_target_ids(service, camera_ids)
+        target_ids = _resolve_target_ids(service, camera_ids, allowlist_ips)
         for camera_id in target_ids:
             spec = service.build_camera_spec(camera_id)
             if spec is None:
@@ -288,20 +291,41 @@ def _load_camera_specs(
 
 
 def _resolve_target_ids(
-    service: CameraService, camera_ids: list[int] | None
+    service: CameraService,
+    camera_ids: list[int] | None,
+    allowlist_ips: set[str],
 ) -> list[int]:
     """Resolve the list of camera ids to run for this engine.
+
+    Explicit ``camera_ids`` (e.g. ``--worker --camera N``) always win and are not
+    filtered. Otherwise every enabled camera runs, narrowed to ``allowlist_ips``
+    when that set is non-empty so a deployment can pull feed from only a chosen
+    few cameras.
 
     Args:
         service: Camera service bound to the open session.
         camera_ids: Explicit ids, or ``None`` to select every enabled camera.
+        allowlist_ips: IP allowlist applied only to the "every enabled camera"
+            path; empty means no IP filtering.
 
     Returns:
         Camera ids to build pipelines for.
     """
     if camera_ids is not None:
         return list(camera_ids)
-    return [camera.id for camera in service.list() if camera.enabled]
+
+    enabled = [camera for camera in service.list() if camera.enabled]
+    if not allowlist_ips:
+        return [camera.id for camera in enabled]
+
+    selected = [camera for camera in enabled if camera.ip in allowlist_ips]
+    logger.info(
+        "camera IP allowlist active: running %d of %d enabled cameras",
+        len(selected),
+        len(enabled),
+        extra={"event": "camera_allowlist_applied"},
+    )
+    return [camera.id for camera in selected]
 
 
 def _build_runtimes(
@@ -332,7 +356,13 @@ def _build_runtimes(
 
     runtimes: list[_CameraRuntime] = []
     for spec, password in pairs:
-        detector = build_detector(cfg.detector)
+        # Per-camera imgsz override (needs a dynamic-shape model); None => global.
+        det_cfg = (
+            cfg.detector
+            if spec.imgsz is None
+            else cfg.detector.model_copy(update={"imgsz": spec.imgsz})
+        )
+        detector = build_detector(det_cfg)
         tracker = build_tracker(cfg.tracker)
         extractor = build_embedding_extractor(cfg.tracker)
         runtimes.append(
@@ -370,7 +400,8 @@ def build_engine(camera_ids: list[int] | None = None) -> Engine:
     store = get_state_store()
     clock = system_clock()
 
-    pairs = _load_camera_specs(camera_ids)
+    allowlist_ips = set(cfg.processing.camera_allowlist_ips)
+    pairs = _load_camera_specs(camera_ids, allowlist_ips)
 
     try:
         runtimes = _build_runtimes(pairs, cfg)

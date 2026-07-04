@@ -140,3 +140,33 @@ def main_stream_url(spec: CameraSpec, password: str, transport: str = "tcp") -> 
         channel=spec.stream_channel_main,
         transport=transport,
     )
+
+
+def snapshot_url(
+    spec: CameraSpec,
+    *,
+    scheme: str = "http",
+    port: int = 80,
+    path_template: str = "/ISAPI/Streaming/channels/{channel}/picture",
+) -> str:
+    """Build the HTTP still-image (snapshot) URL for a camera's sub stream.
+
+    Used by the snapshot-pull capture path (CPU-constrained deployments). Unlike
+    the RTSP URLs, credentials are **not** embedded — the snapshot client supplies
+    them via HTTP auth — so this URL is safe to log as-is. ``{channel}`` in
+    ``path_template`` is substituted with ``spec.stream_channel_sub`` (the sub
+    stream, matching what RTSP detection uses).
+
+    Args:
+        spec: Camera specification supplying host and sub-stream channel.
+        scheme: ``http`` or ``https``.
+        port: Camera HTTP(S) port (typically 80).
+        path_template: Vendor snapshot path with a ``{channel}`` placeholder.
+
+    Returns:
+        The snapshot URL, e.g. ``http://10.0.0.1:80/ISAPI/Streaming/channels/102/picture``.
+    """
+    path = path_template.format(channel=spec.stream_channel_sub)
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{scheme}://{spec.ip}:{port}{path}"

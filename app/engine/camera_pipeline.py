@@ -31,6 +31,7 @@ inside the methods that need them, so this module imports cleanly on core deps.
 from __future__ import annotations
 
 import dataclasses
+import os
 import threading
 from collections.abc import Callable
 
@@ -41,12 +42,13 @@ from app.analytics.heatmap import GridSnapshot, HeatmapAccumulator
 from app.analytics.occupancy import OccupancyCalculator
 from app.analytics.safety import SafetyCalculator
 from app.analytics.waiting import WaitingCalculator
-from app.config.schema import AppConfig
+from app.config.schema import AppConfig, SnapshotPullConfig
 from app.db.repositories.heatmap_repo import HeatmapRepository
 from app.db.session import session_scope
 from app.domain.interfaces import Clock, Detector, EmbeddingExtractor, Tracker
 from app.domain.models import (
     CameraSpec,
+    Detection,
     FramePacket,
     TrackedDetection,
     ZoneType,
@@ -54,9 +56,10 @@ from app.domain.models import (
 from app.events.event_bus import InMemoryEventBus
 from app.events.events import AlertRaised, CameraHealth, HeatmapFlushed
 from app.inference.reid import ReIDManager
-from app.ingestion.capture import CaptureThread, RtspCaptureThread
+from app.ingestion.capture import CaptureThread, RtspCaptureThread, SnapshotCaptureThread
 from app.ingestion.frame_queue import BoundedFrameQueue
-from app.ingestion.stream_url import sub_stream_url
+from app.ingestion.snapshot import SnapshotClient, decode_jpeg
+from app.ingestion.stream_url import snapshot_url, sub_stream_url
 from app.localisation.lines import Crossing, LineCrossingDetector
 from app.localisation.state_machine import PresenceResult, ZonePresenceTracker
 from app.localisation.zones import ZoneEvaluator
@@ -132,6 +135,9 @@ class CameraPipeline:
         self._store = store if store is not None else get_state_store()
         self._injected_reid = reid_manager
         self._capture_factory = capture_factory
+        # Opt-in per-frame diagnostic trace: set PIPELINE_TRACE_CAMERA=<id> to log
+        # this camera's detections/tracks/crossings each frame (line-tuning aid).
+        self._trace_enabled = os.environ.get("PIPELINE_TRACE_CAMERA") == str(spec.id)
 
         # Built in start() so a pipeline can be re-created cheaply on restart.
         self._queue: BoundedFrameQueue | None = None
@@ -218,7 +224,21 @@ class CameraPipeline:
     # ------------------------------------------------------------------ #
     # Construction helpers
     # ------------------------------------------------------------------ #
-    def _build_capture(self, queue: BoundedFrameQueue) -> RtspCaptureThread:
+    def _build_capture(self, queue: BoundedFrameQueue) -> CaptureThread:
+        """Build the frame producer for this camera's role (HLD 6.1).
+
+        Cameras whose ``fps_role`` is listed in
+        ``processing.snapshot_pull.roles`` pull HTTP stills (cheap on GPU-less
+        hardware — decode cost scales with the pull rate, not the stream fps);
+        every other camera decodes the RTSP sub stream. Default config lists no
+        roles, so this is RTSP unless snapshot-pull is explicitly enabled.
+        """
+        snap = self._cfg.processing.snapshot_pull
+        if self._spec.fps_role.value in snap.roles:
+            return self._build_snapshot_capture(queue, snap)
+        return self._build_rtsp_capture(queue)
+
+    def _build_rtsp_capture(self, queue: BoundedFrameQueue) -> RtspCaptureThread:
         """Build the RTSP capture thread for the camera's sub stream."""
         url = sub_stream_url(
             self._spec, self._password, self._cfg.processing.rtsp_transport
@@ -232,6 +252,44 @@ class CameraPipeline:
             clock=self._clock,
             queue=queue,
             role=self._spec.fps_role,
+        )
+
+    def _build_snapshot_capture(
+        self, queue: BoundedFrameQueue, snap: SnapshotPullConfig
+    ) -> SnapshotCaptureThread:
+        """Build the HTTP snapshot-pull capture thread for this camera.
+
+        Wires an :class:`~app.ingestion.snapshot.SnapshotClient` (HTTP fetch) and
+        the lazy JPEG decoder into a ``frame_provider`` the thread calls each tick.
+        No network happens here — the client connects lazily on first fetch.
+        """
+        url = snapshot_url(
+            self._spec,
+            scheme=snap.scheme,
+            port=snap.http_port,
+            path_template=snap.path_template,
+        )
+        client = SnapshotClient(
+            url,
+            self._spec.username,
+            self._password,
+            auth=snap.auth,
+            timeout_s=snap.timeout_s,
+            verify_tls=snap.verify_tls,
+        )
+
+        def _provider() -> np.ndarray | None:
+            return decode_jpeg(client.fetch_bytes())
+
+        return SnapshotCaptureThread(
+            camera_id=self.camera_id,
+            frame_provider=_provider,
+            queue=queue,
+            clock=self._clock,
+            interval_s=snap.interval_s,
+            watchdog_stale_seconds=self._cfg.processing.watchdog_stale_seconds,
+            role=self._spec.fps_role,
+            on_close=client.close,  # release the HTTP client when the loop exits
         )
 
     def _build_collaborators(self) -> None:
@@ -324,11 +382,34 @@ class CameraPipeline:
         presence = self._presence.update(membership, ts)  # type: ignore[union-attr]
         crossings = self._line_detector.update(tracked, ts)  # type: ignore[union-attr]
 
+        if self._trace_enabled:
+            self._trace_frame(detections, tracked, crossings)
+
         counts = {zone_id: len(ids) for zone_id, ids in presence.confirmed.items()}
 
         self._publish_analytics(presence, crossings, ts)
         self._handle_alerts(presence.confirmed, counts, ts, image)
         self._handle_heatmap(tracked, image, ts)
+
+    def _trace_frame(
+        self,
+        detections: list[Detection],
+        tracked: list[TrackedDetection],
+        crossings: list[Crossing],
+    ) -> None:
+        """Log one frame's raw detections, tracks and crossings for line tuning."""
+        tracks = [
+            f"id{t.track_id}@({int(t.bottom_center.x)},{int(t.bottom_center.y)})"
+            for t in tracked
+        ]
+        cross = [f"id{c.track_id}:{c.direction.value}" for c in crossings]
+        logger.info(
+            "trace dets=%d tracks=%s crossings=%s",
+            len(detections),
+            " ".join(tracks) or "-",
+            " ".join(cross) or "-",
+            extra={"camera_id": self._spec.id, "event": "pipeline_trace"},
+        )
 
     def _attach_identities(
         self,

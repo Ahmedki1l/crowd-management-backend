@@ -14,6 +14,39 @@ class OccupancyOut(BaseModel):
     ts: float
 
 
+class SpaceOccupancyOut(BaseModel):
+    """Occupancy for one logical space (Digital Twin ``dt_space_id``).
+
+    A space covered by several cameras is stored as one zone row per camera, all
+    sharing a ``dt_space_id``; this is those per-camera counts summed into a
+    single number so a multi-camera area reports one occupancy figure.
+    """
+
+    dt_space_id: str
+    count: int
+    zone_ids: list[int]
+    ts: float
+
+
+class FloorSpaceOccupancy(BaseModel):
+    """One logical space's occupancy, nested inside :class:`FloorOccupancyOut`."""
+
+    dt_space_id: str
+    count: int
+    zone_ids: list[int]
+
+
+class FloorOccupancyOut(BaseModel):
+    """Occupancy for one physical floor: total across all its zones, plus a
+    per-space (``dt_space_id``) breakdown. A floor groups the spaces that group
+    the zones — resolved via each zone's camera ``floor``."""
+
+    floor: str
+    count: int
+    spaces: list[FloorSpaceOccupancy]
+    ts: float
+
+
 class LineCount(BaseModel):
     line_id: int
     in_count: int
