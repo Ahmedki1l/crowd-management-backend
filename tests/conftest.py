@@ -25,6 +25,7 @@ from app.db.session import (
     get_session_factory,
     init_db,
 )
+from app.engine.manager import reset_engine_manager
 from app.events.event_bus import reset_event_bus
 from app.services.state_store import reset_state_store
 from app.utils.clock import FakeClock
@@ -57,6 +58,7 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     yield
 
+    reset_engine_manager()  # stop any engine a test's /engine/* call started
     get_engine().dispose()
     reset_settings_cache()
     reset_state_store()

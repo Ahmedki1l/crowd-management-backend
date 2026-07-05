@@ -34,14 +34,16 @@ def _run_api_with_engine(host: str, port: int) -> None:
     import uvicorn
 
     from app.api.app import app
-    from app.engine.engine import build_engine
+    from app.engine.manager import get_engine_manager
 
-    engine = build_engine()
-    engine.start()
+    # Start via the shared manager so the engine-control endpoints
+    # (/api/v1/engine/*) drive the same engine this process launched.
+    manager = get_engine_manager()
+    manager.start(mode="all")
     try:
         uvicorn.run(app, host=host, port=port, log_config=None)
     finally:
-        engine.stop()
+        manager.stop()
 
 
 def _wire_runtime():

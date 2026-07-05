@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from app.api.routers.alerts import router as alerts_router
 from app.api.routers.cameras import router as cameras_router
 from app.api.routers.config import router as config_router
+from app.api.routers.engine import router as engine_router
 from app.api.routers.entry_exit import router as entry_exit_router
 from app.api.routers.health import router as health_router
 from app.api.routers.heatmap import router as heatmap_router
@@ -45,6 +46,7 @@ all_routers: list[APIRouter] = [
     stream_router,
     snapshots_router,
     tools_router,
+    engine_router,
     health_router,
 ]
 
