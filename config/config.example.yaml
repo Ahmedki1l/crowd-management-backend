@@ -62,7 +62,7 @@ processing:
     verify_tls: true             # https only
 
 detector:
-  model_path: "models/detector"
+  model_path: "models/detector_openvino_model"  # OpenVINO dir MUST end in _openvino_model
   runtime: "openvino"    #"pytorch"             # openvino (CPU) | tensorrt (GPU)
   person_class: 0
   confidence: 0.30

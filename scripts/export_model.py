@@ -4,8 +4,10 @@
   CPU  (OpenVINO INT8):  python scripts/export_model.py --weights yolo11n.pt --format openvino --int8
   GPU  (TensorRT FP16):  python scripts/export_model.py --weights yolo11n.pt --format engine --half
 
-The exported artifact goes under models/detector/ and is referenced by
-detector.model_path in config.
+Ultralytics writes the artifact as ``<weights-stem>_openvino_model/`` (the
+``_openvino_model`` suffix is REQUIRED — Ultralytics identifies the OpenVINO
+format from the directory name). Move it under models/ keeping that suffix
+(e.g. models/detector_openvino_model) and point detector.model_path at it.
 """
 
 from __future__ import annotations

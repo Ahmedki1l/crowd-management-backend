@@ -39,9 +39,9 @@ processing:
     timeout_s: 5.0
 
 detector:
-  model_path: "yolo11n_openvino_model"   # nano @1280 (FP16) for small/distant people
+  model_path: "yolo11m_openvino_model"   # medium (FP16, dynamic) — best recall on seated/occluded people
   runtime: "openvino"
-  confidence: 0.25
+  confidence: 0.20                        # lowered from 0.25 to recover seated/occluded people
   imgsz: 1280
 
 tracker:

@@ -84,7 +84,7 @@ class ProcessingConfig(BaseModel):
 
 
 class DetectorConfig(BaseModel):
-    model_path: str = "models/detector"
+    model_path: str = "models/detector_openvino_model"  # OpenVINO dir must end in _openvino_model
     runtime: str = "openvino"  # openvino | tensorrt
     person_class: int = 0
     confidence: float = 0.30

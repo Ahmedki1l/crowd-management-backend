@@ -325,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api",           default=None,           help="Backend API base URL (to fetch zones)")
     parser.add_argument("--token",         default=None,           help="Bearer token (for --api)")
     parser.add_argument("--camera-id",     type=int, default=None, help="Backend camera ID")
-    parser.add_argument("--model-path",    default="models/detector")
+    parser.add_argument("--model-path",    default="models/detector_openvino_model")
     parser.add_argument("--model-weights", default="yolo11m.pt")
     parser.add_argument("--conf",          type=float, default=0.30, help="Detection confidence threshold")
     parser.add_argument("--width",         type=int,   default=0,    help="Resize output window width (0=native)")
