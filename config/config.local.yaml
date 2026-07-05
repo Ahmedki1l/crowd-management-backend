@@ -46,6 +46,9 @@ detector:
 
 tracker:
   reid_enabled: false
+  track_thresh: 0.20               # align with detector.confidence so seated/low-conf
+                                   # people (0.2-0.5) can be tracked & counted, not just
+                                   # counted in the validation images. Default 0.5 dropped them.
 
 state_machine:
   confirm_enter_frames: 1          # responsive at 0.5 fps snapshot cadence

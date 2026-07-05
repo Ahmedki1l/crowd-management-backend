@@ -15,6 +15,7 @@ venv/
 .env
 *.key
 api_token.txt
+api-token.txt  
 
 ## Data / models / runtime
 validation_snapshots/
