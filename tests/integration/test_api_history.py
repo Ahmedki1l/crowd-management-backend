@@ -87,6 +87,85 @@ def test_entry_exit_history_returns_net_per_bucket(
     assert [p["value"] for p in response.json()["points"]] == [1.0]
 
 
+# Noon UTC lands on the same calendar day in every server timezone (UTC-11..+11),
+# so these daily-total tests are deterministic regardless of where CI runs.
+def _noon(year: int, month: int, day: int) -> datetime:
+    return datetime(year, month, day, 12, 0, tzinfo=UTC)
+
+
+def test_entry_exit_daily_returns_todays_in_and_out(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = CrossingRepository(session)
+    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
+    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=2)
+    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="out", track_ref=3)
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/entry-exit/daily",
+        params={"area_id": "gate", "date": "2024-06-12"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "area_id": "gate",
+        "date": "2024-06-12",
+        "in_count": 2,
+        "out_count": 1,
+        "net": 1,
+    }
+
+
+def test_entry_exit_daily_excludes_other_days(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    repo = CrossingRepository(session)
+    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
+    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 13), direction="in", track_ref=2)
+    session.commit()
+
+    response = client.get(
+        "/api/v1/history/entry-exit/daily",
+        params={"area_id": "gate", "date": "2024-06-12"},
+        headers=auth_headers,
+    )
+
+    assert response.json()["in_count"] == 1  # the 13th's crossing is excluded
+
+
+def test_entry_exit_daily_empty_day_is_zeros(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/history/entry-exit/daily",
+        params={"area_id": "gate", "date": "2024-06-12"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "area_id": "gate",
+        "date": "2024-06-12",
+        "in_count": 0,
+        "out_count": 0,
+        "net": 0,
+    }
+
+
+def test_entry_exit_daily_rejects_malformed_date(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/history/entry-exit/daily",
+        params={"area_id": "gate", "date": "12-06-2024"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
 def test_waiting_history_returns_average_dwell_per_bucket(
     client: TestClient, auth_headers: dict[str, str], session: Session
 ) -> None:

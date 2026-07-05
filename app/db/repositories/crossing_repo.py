@@ -76,14 +76,27 @@ class CrossingRepository:
             )
         return series
 
-    def totals(self, area_id: str) -> dict[str, int]:
-        """Return all-time ``{"in", "out", "net"}`` counts for ``area_id``."""
+    def totals(
+        self,
+        area_id: str,
+        frm: datetime | None = None,
+        to: datetime | None = None,
+    ) -> dict[str, int]:
+        """Return ``{"in", "out", "net"}`` counts for ``area_id``.
+
+        With no bounds the counts are all-time; passing ``frm`` (inclusive) and/or
+        ``to`` (exclusive) restricts them to a ``[frm, to)`` window — e.g. a single
+        calendar day. ``net`` is ``in - out``.
+        """
+        stmt = select(CrossingEvent.direction, func.count()).where(
+            CrossingEvent.area_id == area_id
+        )
+        if frm is not None:
+            stmt = stmt.where(CrossingEvent.ts >= frm)
+        if to is not None:
+            stmt = stmt.where(CrossingEvent.ts < to)
         counts = dict(
-            self._session.execute(
-                select(CrossingEvent.direction, func.count())
-                .where(CrossingEvent.area_id == area_id)
-                .group_by(CrossingEvent.direction)
-            ).all()
+            self._session.execute(stmt.group_by(CrossingEvent.direction)).all()
         )
         in_count = int(counts.get(CrossingDirection.IN.value, 0))
         out_count = int(counts.get(CrossingDirection.OUT.value, 0))

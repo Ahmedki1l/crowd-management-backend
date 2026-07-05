@@ -62,6 +62,22 @@ class EntryExitOut(BaseModel):
     ts: float
 
 
+class DailyEntryExitOut(BaseModel):
+    """Entry/exit totals for one area on one local calendar day.
+
+    Read from the persisted crossing events, so it survives process restarts —
+    unlike the live in-memory ``/entry-exit`` counter, which resets on restart.
+    ``date`` is the local day the counts cover; ``net`` (``in - out``) is a
+    convenience derived from the same day's crossings.
+    """
+
+    area_id: str
+    date: str  # YYYY-MM-DD, in the server's local timezone
+    in_count: int
+    out_count: int
+    net: int
+
+
 class WaitingOut(BaseModel):
     zone_id: int
     dt_space_id: str | None = None

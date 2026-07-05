@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.api.schemas.metrics import (
+    DailyEntryExitOut,
     EntryExitOut,
     HistorySeriesOut,
     LineCount,
@@ -84,6 +85,37 @@ class EntryExitService:
             key=f"area:{area_id}",
             bucket=f"{bucket_seconds}s",
             points=points,
+        )
+
+    def daily(
+        self,
+        area_id: str,
+        day_start: datetime,
+        day_end: datetime,
+        date_label: str,
+    ) -> DailyEntryExitOut:
+        """Return durable IN/OUT/net totals for ``area_id`` over one local day.
+
+        Reads the persisted crossing events in ``[day_start, day_end)`` (UTC), so
+        the totals survive process restarts — unlike the live in-memory counter.
+
+        Args:
+            area_id: The area to total (e.g. ``"main-entrance"``).
+            day_start: Inclusive UTC start of the local day.
+            day_end: Exclusive UTC end of the local day.
+            date_label: The local calendar day (``YYYY-MM-DD``) being reported.
+
+        Returns:
+            A :class:`DailyEntryExitOut` with the day's IN/OUT/net totals; zeros
+            when the area had no crossings that day.
+        """
+        counts = self._crossing_repo.totals(area_id, day_start, day_end)
+        return DailyEntryExitOut(
+            area_id=area_id,
+            date=date_label,
+            in_count=counts["in"],
+            out_count=counts["out"],
+            net=counts["net"],
         )
 
     @staticmethod

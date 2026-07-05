@@ -10,14 +10,14 @@ and bucket and binds them to those services.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthDep, db_session, state_store
 from app.api.routers._timeparse import parse_bucket_seconds, parse_instant
-from app.api.schemas.metrics import AlertOut, HistorySeriesOut
+from app.api.schemas.metrics import AlertOut, DailyEntryExitOut, HistorySeriesOut
 from app.services.alert_service import AlertService
 from app.services.entryexit_service import EntryExitService
 from app.services.occupancy_service import OccupancyService
@@ -51,6 +51,67 @@ def _resolve_window(frm: str | None, to: str | None) -> tuple[datetime, datetime
             detail="'from' must be earlier than 'to'",
         )
     return window_start, window_end
+
+
+def _resolve_day(date_str: str | None) -> tuple[datetime, datetime, str]:
+    """Resolve one local calendar day to its ``[start, end)`` UTC bounds.
+
+    The day is interpreted in the server's local timezone — correct for an
+    on-site deployment where "today" means the building's day, while crossing
+    timestamps are stored in UTC.
+
+    Args:
+        date_str: A ``YYYY-MM-DD`` calendar date, or ``None`` for today.
+
+    Returns:
+        ``(day_start_utc, day_end_utc, "YYYY-MM-DD")``.
+
+    Raises:
+        HTTPException: ``422`` if ``date_str`` is not a valid ``YYYY-MM-DD`` date.
+    """
+    local_tz = datetime.now().astimezone().tzinfo
+    if date_str is not None:
+        try:
+            day = date.fromisoformat(date_str)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="'date' must be a YYYY-MM-DD calendar date",
+            ) from exc
+    else:
+        day = datetime.now(local_tz).date()
+    start_local = datetime(day.year, day.month, day.day, tzinfo=local_tz)
+    end_local = start_local + timedelta(days=1)
+    return start_local.astimezone(UTC), end_local.astimezone(UTC), day.isoformat()
+
+
+@router.get("/history/entry-exit/daily", response_model=DailyEntryExitOut)
+def entry_exit_daily(
+    area_id: str,
+    day: str | None = Query(
+        default=None,
+        alias="date",
+        description="Local calendar day YYYY-MM-DD; defaults to today",
+    ),
+    session: Session = Depends(db_session),
+    store: StateStore = Depends(state_store),
+) -> DailyEntryExitOut:
+    """Return durable IN/OUT/net totals for one area on one local day.
+
+    Unlike the live ``/entry-exit`` counter (in-memory, resets on restart), this
+    reads the persisted crossing events, so today's totals survive restarts.
+
+    Args:
+        area_id: The area to total (e.g. ``"main-entrance"``).
+        day: Local calendar day ``YYYY-MM-DD`` (query param ``date``); today if omitted.
+        session: Injected DB session owning the read.
+        store: Injected live-state cache (required by the service constructor).
+
+    Returns:
+        A :class:`DailyEntryExitOut` with the day's totals and the date covered.
+    """
+    day_start, day_end, date_label = _resolve_day(day)
+    return EntryExitService(session, store).daily(area_id, day_start, day_end, date_label)
 
 
 @router.get("/history/occupancy", response_model=HistorySeriesOut)
