@@ -37,19 +37,36 @@ processing:
     path_template: "/ISAPI/Streaming/channels/{channel}/picture"
     auth: "digest"
     timeout_s: 5.0
+    count_from_detections: true    # count detections in-zone directly; no tracking
+                                   # (unreliable at 3s cadence, only undercounts)
 
 detector:
-  model_path: "yolo11m_openvino_model"   # medium (FP16, dynamic) — best recall on seated/occluded people
+  model_path: "models/nano_v0_final_openvino_model"  # fine-tuned nano v0 FINAL (early-stopped @55, mAP50 0.97) — fixes furniture FPs + recovers seated/thobe
   runtime: "openvino"
-  confidence: 0.20                        # lowered from 0.25 to recover seated/occluded people
+  confidence: 0.30
   imgsz: 1280
 
 tracker:
-  reid_enabled: false
-  track_thresh: 0.20               # align with detector.confidence so seated/low-conf
+  reid_enabled: true               # appearance Re-ID — re-links a person when ByteTrack
+                                   # briefly loses them (glass/reflection band at the door),
+                                   # so an exit crossing survives the track-id change.
+                                   # Only the tracked path uses it → effectively door-only
+                                   # (engine builds the extractor for tracked cameras only).
+  reid_runtime: onnx               # OSNet-AIN as ONNX under onnxruntime (CPU-only, no torch
+                                   # at runtime). Model: models/reid/osnet_ain_x1_0_msmt17.onnx
+                                   # (exported via scripts/training/export_reid_onnx.py).
+  track_thresh: 0.30               # align with detector.confidence so seated/low-conf
                                    # people (0.2-0.5) can be tracked & counted, not just
                                    # counted in the validation images. Default 0.5 dropped them.
 
 state_machine:
   confirm_enter_frames: 1          # responsive at 0.5 fps snapshot cadence
-  confirm_leave_frames: 2
+  confirm_leave_frames: 1
+
+# Save fetched frames to disk to build a detector training set. Occupancy (ISAPI)
+# cameras save original JPEG bytes; the RTSP door saves its decoded frames (encoded).
+dataset_capture:
+  enabled: false
+  dir: "training_data"             # <camera>/<date>/<timestamp>.jpg
+  min_interval_s: 1.0              # per-camera cap. Keeps every occupancy pull (3s
+                                   # cadence) and limits the high-fps RTSP door to ~1/s.

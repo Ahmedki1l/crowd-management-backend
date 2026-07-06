@@ -57,6 +57,7 @@ from app.events.event_bus import InMemoryEventBus
 from app.events.events import AlertRaised, CameraHealth, HeatmapFlushed
 from app.inference.reid import ReIDManager
 from app.ingestion.capture import CaptureThread, RtspCaptureThread, SnapshotCaptureThread
+from app.ingestion.dataset_capture import DatasetWriter
 from app.ingestion.frame_queue import BoundedFrameQueue
 from app.ingestion.snapshot import SnapshotClient, decode_jpeg
 from app.ingestion.stream_url import snapshot_url, sub_stream_url
@@ -138,6 +139,24 @@ class CameraPipeline:
         # Opt-in per-frame diagnostic trace: set PIPELINE_TRACE_CAMERA=<id> to log
         # this camera's detections/tracks/crossings each frame (line-tuning aid).
         self._trace_enabled = os.environ.get("PIPELINE_TRACE_CAMERA") == str(spec.id)
+
+        # Opt-in training-data capture. Snapshot (ISAPI) cameras save the original
+        # JPEG bytes in the provider; RTSP cameras (e.g. the entry/exit door) save
+        # the decoded frame (encoded) at the worker. One writer serves both.
+        dataset_cfg = cfg.dataset_capture
+        self._dataset_writer = (
+            DatasetWriter(dataset_cfg.dir, dataset_cfg.min_interval_s)
+            if dataset_cfg.enabled
+            else None
+        )
+        self._is_snapshot_source = (
+            spec.fps_role.value in cfg.processing.snapshot_pull.roles
+        )
+        # Snapshot occupancy: count detections in-zone directly, skipping the
+        # tracker/presence machine (unreliable at the snapshot cadence, only undercounts).
+        self._occ_from_detections = (
+            cfg.processing.snapshot_pull.count_from_detections and self._is_snapshot_source
+        )
 
         # Built in start() so a pipeline can be re-created cheaply on restart.
         self._queue: BoundedFrameQueue | None = None
@@ -278,8 +297,14 @@ class CameraPipeline:
             verify_tls=snap.verify_tls,
         )
 
+        # Optional: persist the original ISAPI JPEG bytes for a training dataset.
+        writer = self._dataset_writer
+
         def _provider() -> np.ndarray | None:
-            return decode_jpeg(client.fetch_bytes())
+            raw = client.fetch_bytes()
+            if raw is not None and writer is not None:
+                writer.save(self.camera_id, self._spec.ip, raw, self._clock.now())
+            return decode_jpeg(raw)
 
         return SnapshotCaptureThread(
             camera_id=self.camera_id,
@@ -374,7 +399,22 @@ class CameraPipeline:
         ts = packet.ts
         image = packet.image
 
+        # Training-data capture for RTSP sources (snapshot sources save the raw
+        # JPEG in the provider instead, so they're skipped here to avoid re-encode).
+        if self._dataset_writer is not None and not self._is_snapshot_source:
+            self._dataset_writer.save_image(self.camera_id, self._spec.ip, image, ts)
+
         detections = self._detector.detect(image)
+
+        # Snapshot occupancy (3s cadence): count detections in-zone directly and
+        # publish — no tracker, no presence debounce. ByteTrack can't reliably link
+        # people across snapshots, so tracking only drops real people from the count.
+        if self._occ_from_detections:
+            counts = self._zone_eval.count_in_zones(detections)  # type: ignore[union-attr]
+            for event in self._occupancy.process_counts(counts, ts):  # type: ignore[union-attr]
+                self._bus.publish(event)
+            return
+
         tracked = self._tracker.update(detections, image)
         tracked = self._attach_identities(image, tracked, ts)
 

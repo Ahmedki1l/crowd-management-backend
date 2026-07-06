@@ -354,6 +354,13 @@ def _build_runtimes(
         build_tracker,
     )
 
+    # Re-ID embeddings are consumed only on the tracked path. Snapshot-occupancy
+    # cameras that count detections directly (count_from_detections) never track,
+    # so building an OSNet extractor for them would load the model for nothing.
+    # Build it only where tracking actually runs — mirroring
+    # CameraPipeline._occ_from_detections — which in this deployment is just the
+    # entry/exit door, keeping "Re-ID on" scoped to the cameras that use it.
+    snap = cfg.processing.snapshot_pull
     runtimes: list[_CameraRuntime] = []
     for spec, password in pairs:
         # Per-camera imgsz override (needs a dynamic-shape model); None => global.
@@ -364,7 +371,12 @@ def _build_runtimes(
         )
         detector = build_detector(det_cfg)
         tracker = build_tracker(cfg.tracker)
-        extractor = build_embedding_extractor(cfg.tracker)
+        runs_tracking = not (
+            snap.count_from_detections and spec.fps_role.value in snap.roles
+        )
+        extractor = (
+            build_embedding_extractor(cfg.tracker) if runs_tracking else None
+        )
         runtimes.append(
             _CameraRuntime(
                 spec=spec,

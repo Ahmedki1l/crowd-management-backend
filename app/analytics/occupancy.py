@@ -56,10 +56,31 @@ class OccupancyCalculator(BaseCalculator):
             One :class:`OccupancyUpdate` per zone whose confirmed count changed
             since its previous emission (possibly empty).
         """
+        counts = {
+            zone_id: len(confirmed.get(zone_id, set())) for zone_id in self._zones
+        }
+        return self.process_counts(counts, ts)
+
+    def process_counts(
+        self, counts: dict[int, int], ts: float
+    ) -> list[OccupancyUpdate]:
+        """Emit occupancy updates from per-zone counts directly (no tracking).
+
+        The snapshot-pull path counts detections in-zone (via
+        :meth:`~app.localisation.zones.ZoneEvaluator.count_in_zones`) and feeds the
+        counts here. Emission is change-only, exactly like :meth:`process`.
+
+        Args:
+            counts: ``zone_id -> people count`` for this frame. Zones absent from
+                the mapping are treated as ``0``.
+            ts: Frame timestamp stamped on emitted events.
+
+        Returns:
+            One :class:`OccupancyUpdate` per zone whose count changed.
+        """
         updates: list[OccupancyUpdate] = []
         for zone_id, zone in self._zones.items():
-            members = confirmed.get(zone_id)
-            count = len(members) if members is not None else 0
+            count = counts.get(zone_id, 0)
             if self._last_count.get(zone_id) == count:
                 continue
             self._last_count[zone_id] = count

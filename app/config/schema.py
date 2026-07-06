@@ -65,6 +65,10 @@ class SnapshotPullConfig(BaseModel):
     auth: str = "digest"  # digest | basic
     timeout_s: float = 5.0
     verify_tls: bool = True  # only consulted when scheme is https
+    # Count detections in-zone directly (no tracker/presence debounce). At the
+    # snapshot cadence ByteTrack can't reliably link people across frames, so
+    # tracking only drops real people from the count. Recommended for snapshot pull.
+    count_from_detections: bool = False
 
 
 class ProcessingConfig(BaseModel):
@@ -123,6 +127,19 @@ class SnapshotsConfig(BaseModel):
     dir: str = "data/snapshots"
 
 
+class DatasetCaptureConfig(BaseModel):
+    """Persist every fetched ISAPI snapshot to disk for building a training set.
+
+    Off by default. When ``enabled``, each successful snapshot-pull fetch writes
+    its *original* JPEG bytes (no re-encode) under ``dir/<camera>/<date>/``.
+    ``min_interval_s`` throttles per camera (0 = save every fetched frame).
+    """
+
+    enabled: bool = False
+    dir: str = "training_data"
+    min_interval_s: float = 0.0
+
+
 class RetentionConfig(BaseModel):
     occupancy_days: int = 90
     crossing_days: int = 90
@@ -145,4 +162,5 @@ class AppConfig(BaseModel):
     state_machine: StateMachineConfig = Field(default_factory=StateMachineConfig)
     heatmap: HeatmapConfig = Field(default_factory=HeatmapConfig)
     snapshots: SnapshotsConfig = Field(default_factory=SnapshotsConfig)
+    dataset_capture: DatasetCaptureConfig = Field(default_factory=DatasetCaptureConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)

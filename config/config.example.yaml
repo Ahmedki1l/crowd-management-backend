@@ -96,6 +96,13 @@ heatmap:
 snapshots:
   dir: "data/snapshots"
 
+# Persist fetched ISAPI snapshots to disk for building a detector training set.
+# Off by default; the original JPEG bytes are written under dir/<camera>/<date>/.
+dataset_capture:
+  enabled: false
+  dir: "training_data"
+  min_interval_s: 0.0            # 0 = save every snapshot pull; >0 throttles per camera
+
 retention:
   occupancy_days: 90
   crossing_days: 90

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from shapely.geometry.polygon import Polygon
 
-from app.domain.models import TrackedDetection, ZoneSpec, ZoneType
+from app.domain.models import Detection, TrackedDetection, ZoneSpec, ZoneType
 from app.localisation.geometry import point_in_polygon, polygon_overlap_ratio
 from app.utils.logging import get_logger
 
@@ -79,3 +79,23 @@ class ZoneEvaluator:
                 if inside or overlapping:
                     members.add(det.track_id)
         return result
+
+    def count_in_zones(self, detections: Sequence[Detection]) -> dict[int, int]:
+        """Count raw detections per zone — no identity, no tracking.
+
+        Same in-zone rule as :meth:`membership` (ground point inside the polygon,
+        or ≥ :data:`MIN_OVERLAP_RATIO` bbox overlap), but returns a per-zone count
+        of detections rather than a set of track ids. Used by the snapshot-pull
+        occupancy path, where tracking at the low frame cadence only loses people.
+        """
+        counts: dict[int, int] = {zone.id: 0 for zone in self._zones}
+        if not self._zones or not detections:
+            return counts
+        for zone in self._zones:
+            polygon = self._polygons[zone.id]
+            for det in detections:
+                inside = point_in_polygon(det.bbox.bottom_center, polygon)
+                overlapping = polygon_overlap_ratio(det.bbox, polygon) >= MIN_OVERLAP_RATIO
+                if inside or overlapping:
+                    counts[zone.id] += 1
+        return counts

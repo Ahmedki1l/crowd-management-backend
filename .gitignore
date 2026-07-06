@@ -31,6 +31,12 @@ camera_analytics.db.pre-restore*
 # *.db
 # *.sqlite3
 
+# Large model weights — teacher/ensemble nets (offline pseudo-labeling) and base
+# YOLO downloads: used by scripts/training only, never at runtime, and often
+# >100MB (GitHub's hard limit). Keep them on disk, out of git.
+/yolo*.pt
+weights/
+
 # Tooling
 .pytest_cache/
 .mypy_cache/
@@ -42,3 +48,10 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Captured ISAPI snapshots for model training (can be large)
+training_data/
+.venv-train/
+dataset/
+training_runs/
+runs/
