@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.orm import Session
 
-from app.config.settings import get_settings, load_config
+from app.config.settings import load_config
 from app.engine.engine import Engine, build_engine
 from app.inference.reid import ReIDManager
 from app.services.credentials import CredentialCipher
@@ -67,9 +67,13 @@ def test_build_engine_degrades_to_zero_pipelines_when_backends_absent(
     assert engine.pipeline_count == 0
 
 
-def test_build_engine_wires_shared_reid_manager_when_enabled() -> None:
+def test_build_engine_wires_shared_reid_manager_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When ``tracker.reid_enabled`` is set, the engine gets one shared gallery."""
-    assert get_settings().tracker.reid_enabled is True
+    cfg = load_config()
+    cfg.tracker.reid_enabled = True
+    monkeypatch.setattr("app.engine.engine.get_settings", lambda: cfg)
 
     engine = build_engine()
 
