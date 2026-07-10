@@ -83,10 +83,20 @@ class ZoneEvaluator:
     def count_in_zones(self, detections: Sequence[Detection]) -> dict[int, int]:
         """Count raw detections per zone — no identity, no tracking.
 
-        Same in-zone rule as :meth:`membership` (ground point inside the polygon,
-        or ≥ :data:`MIN_OVERLAP_RATIO` bbox overlap), but returns a per-zone count
-        of detections rather than a set of track ids. Used by the snapshot-pull
-        occupancy path, where tracking at the low frame cadence only loses people.
+        A detection counts for a zone only when its bbox *bottom-centre* (the
+        ground-contact point) lies inside the polygon. Unlike :meth:`membership`,
+        the :data:`MIN_OVERLAP_RATIO` bbox-overlap fallback is deliberately **not**
+        applied here: an occupancy count answers "who is standing in this area",
+        and a tall bbox belonging to a person outside the zone routinely clips a
+        polygon edge by more than the ratio (a person in the adjacent room, or a
+        detection truncated at the frame border whose bbox bottom is not a real
+        ground point). The overlap rule exists for *tracked* presence, where a
+        partially-entering track should not flicker out of the zone.
+
+        Keeping this rule identical to the one the validation renderer draws
+        (green = counted) is what makes the annotated frames trustworthy evidence
+        for a count. Used by the snapshot-pull occupancy path, where tracking at
+        the low frame cadence only loses people.
         """
         counts: dict[int, int] = {zone.id: 0 for zone in self._zones}
         if not self._zones or not detections:
@@ -94,8 +104,6 @@ class ZoneEvaluator:
         for zone in self._zones:
             polygon = self._polygons[zone.id]
             for det in detections:
-                inside = point_in_polygon(det.bbox.bottom_center, polygon)
-                overlapping = polygon_overlap_ratio(det.bbox, polygon) >= MIN_OVERLAP_RATIO
-                if inside or overlapping:
+                if point_in_polygon(det.bbox.bottom_center, polygon):
                     counts[zone.id] += 1
         return counts
