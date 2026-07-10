@@ -10,6 +10,12 @@ api:
   cors_origins: ["*"]
 
 processing:
+  # Master switch for the entry/exit gate (line-crossing at the main door).
+  # false => the gate camera runs NO pipeline: no RTSP decode, no tracker, no
+  # Re-ID — the whole heavy tracked path is off, occupancy is unaffected.
+  # Set true to re-enable entry/exit counting. (An explicit --worker --camera 27
+  # still runs the gate regardless, for debugging.)
+  entry_exit_enabled: false
   # Only these camera IPs pull feed (the 5 B1-OFFICE = waiting-area cameras).
   camera_allowlist_ips:
     - "10.1.13.43"   # CAM-24 (B1-OFFICE)

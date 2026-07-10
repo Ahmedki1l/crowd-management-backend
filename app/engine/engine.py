@@ -29,7 +29,7 @@ from app.config.schema import AppConfig
 from app.config.settings import get_settings
 from app.db.session import session_scope
 from app.domain.interfaces import Clock, Detector, EmbeddingExtractor, Tracker
-from app.domain.models import CameraSpec
+from app.domain.models import CameraRole, CameraSpec
 from app.engine.camera_pipeline import CameraPipeline
 from app.engine.round_timer import RoundTimer
 from app.events.event_bus import InMemoryEventBus, get_event_bus
@@ -254,6 +254,7 @@ class Engine:
 def _load_camera_specs(
     camera_ids: list[int] | None,
     allowlist_ips: set[str],
+    entry_exit_enabled: bool = True,
 ) -> list[tuple[CameraSpec, str]]:
     """Load the (spec, password) pairs for the cameras the engine should run.
 
@@ -273,7 +274,9 @@ def _load_camera_specs(
     pairs: list[tuple[CameraSpec, str]] = []
     with session_scope() as session:
         service = CameraService(session)
-        target_ids = _resolve_target_ids(service, camera_ids, allowlist_ips)
+        target_ids = _resolve_target_ids(
+            service, camera_ids, allowlist_ips, entry_exit_enabled
+        )
         for camera_id in target_ids:
             spec = service.build_camera_spec(camera_id)
             if spec is None:
@@ -299,19 +302,24 @@ def _resolve_target_ids(
     service: CameraService,
     camera_ids: list[int] | None,
     allowlist_ips: set[str],
+    entry_exit_enabled: bool = True,
 ) -> list[int]:
     """Resolve the list of camera ids to run for this engine.
 
     Explicit ``camera_ids`` (e.g. ``--worker --camera N``) always win and are not
     filtered. Otherwise every enabled camera runs, narrowed to ``allowlist_ips``
     when that set is non-empty so a deployment can pull feed from only a chosen
-    few cameras.
+    few cameras, and with the entry/exit gate dropped when ``entry_exit_enabled``
+    is false.
 
     Args:
         service: Camera service bound to the open session.
         camera_ids: Explicit ids, or ``None`` to select every enabled camera.
         allowlist_ips: IP allowlist applied only to the "every enabled camera"
             path; empty means no IP filtering.
+        entry_exit_enabled: When false, cameras carrying the ``entry_exit`` role
+            are dropped from the "every enabled camera" path (the gate's heavy
+            tracked pipeline is not built). Ignored for explicit ``camera_ids``.
 
     Returns:
         Camera ids to build pipelines for.
@@ -320,17 +328,29 @@ def _resolve_target_ids(
         return list(camera_ids)
 
     enabled = [camera for camera in service.list() if camera.enabled]
-    if not allowlist_ips:
-        return [camera.id for camera in enabled]
+    if allowlist_ips:
+        enabled = [camera for camera in enabled if camera.ip in allowlist_ips]
+        logger.info(
+            "camera IP allowlist active: %d cameras match",
+            len(enabled),
+            extra={"event": "camera_allowlist_applied"},
+        )
 
-    selected = [camera for camera in enabled if camera.ip in allowlist_ips]
-    logger.info(
-        "camera IP allowlist active: running %d of %d enabled cameras",
-        len(selected),
-        len(enabled),
-        extra={"event": "camera_allowlist_applied"},
-    )
-    return [camera.id for camera in selected]
+    if not entry_exit_enabled:
+        gate = [c for c in enabled if CameraRole.ENTRY_EXIT.value in c.roles]
+        if gate:
+            enabled = [c for c in enabled if c not in gate]
+            logger.info(
+                "entry/exit disabled: skipping %d gate camera(s) %s",
+                len(gate),
+                [c.id for c in gate],
+                extra={
+                    "event": "entry_exit_disabled",
+                    "camera_ids": [c.id for c in gate],
+                },
+            )
+
+    return [camera.id for camera in enabled]
 
 
 def _build_runtimes(
@@ -418,7 +438,9 @@ def build_engine(camera_ids: list[int] | None = None) -> Engine:
     clock = system_clock()
 
     allowlist_ips = set(cfg.processing.camera_allowlist_ips)
-    pairs = _load_camera_specs(camera_ids, allowlist_ips)
+    pairs = _load_camera_specs(
+        camera_ids, allowlist_ips, cfg.processing.entry_exit_enabled
+    )
 
     try:
         runtimes = _build_runtimes(pairs, cfg)

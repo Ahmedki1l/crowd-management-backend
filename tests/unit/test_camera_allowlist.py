@@ -52,3 +52,50 @@ def test_explicit_camera_ids_bypass_allowlist(session: Session, make_camera) -> 
     ids = _resolve_target_ids(CameraService(session), [cam_a.id], {"1.1.1.1"})
 
     assert ids == [cam_a.id]  # explicit selection wins over the allowlist
+
+
+def test_entry_exit_disabled_drops_the_gate(session: Session, make_camera) -> None:
+    occ = make_camera(session, name="occ", ip="10.0.0.1", roles=["occupancy"])
+    make_camera(session, name="gate", ip="10.0.0.2", roles=["entry_exit"])
+
+    ids = _resolve_target_ids(
+        CameraService(session), None, set(), entry_exit_enabled=False
+    )
+
+    assert set(ids) == {occ.id}  # the entry_exit camera gets no pipeline
+
+
+def test_entry_exit_enabled_keeps_the_gate(session: Session, make_camera) -> None:
+    occ = make_camera(session, name="occ", ip="10.0.0.1", roles=["occupancy"])
+    gate = make_camera(session, name="gate", ip="10.0.0.2", roles=["entry_exit"])
+
+    ids = _resolve_target_ids(
+        CameraService(session), None, set(), entry_exit_enabled=True
+    )
+
+    assert set(ids) == {occ.id, gate.id}
+
+
+def test_entry_exit_disable_ignored_for_explicit_camera(session: Session, make_camera) -> None:
+    gate = make_camera(session, name="gate", ip="10.0.0.2", roles=["entry_exit"])
+
+    ids = _resolve_target_ids(
+        CameraService(session), [gate.id], set(), entry_exit_enabled=False
+    )
+
+    assert ids == [gate.id]  # explicit --worker --camera still runs the gate
+
+
+def test_entry_exit_disable_composes_with_allowlist(session: Session, make_camera) -> None:
+    occ = make_camera(session, name="occ", ip="10.0.0.1", roles=["occupancy"])
+    make_camera(session, name="gate", ip="10.0.0.2", roles=["entry_exit"])
+    make_camera(session, name="other", ip="10.0.0.9", roles=["occupancy"])
+
+    ids = _resolve_target_ids(
+        CameraService(session),
+        None,
+        {"10.0.0.1", "10.0.0.2"},
+        entry_exit_enabled=False,
+    )
+
+    assert set(ids) == {occ.id}  # allowlisted AND gate-dropped

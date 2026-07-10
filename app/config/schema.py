@@ -77,6 +77,12 @@ class ProcessingConfig(BaseModel):
     # When non-empty, ONLY cameras whose IP is listed get a pipeline (feed pull);
     # every other camera is skipped. Empty (default) runs every enabled camera.
     camera_allowlist_ips: list[str] = Field(default_factory=list)
+    # Master switch for the entry/exit (line-crossing) gate. When false, cameras
+    # carrying the entry_exit role get no pipeline at all — no RTSP decode, no
+    # tracker, no Re-ID — freeing the heavy tracked path on CPU-only boxes while
+    # leaving occupancy untouched. Applies only to the "run every enabled camera"
+    # path; an explicit --worker --camera <id> still runs the gate on demand.
+    entry_exit_enabled: bool = True
     stream_channel_sub: int = 102
     stream_channel_main: int = 101
     queue_maxsize: int = 4
