@@ -22,6 +22,7 @@ inside :func:`build_engine`.
 
 from __future__ import annotations
 
+import os
 import threading
 
 from app.config.schema import AppConfig
@@ -30,6 +31,7 @@ from app.db.session import session_scope
 from app.domain.interfaces import Clock, Detector, EmbeddingExtractor, Tracker
 from app.domain.models import CameraSpec
 from app.engine.camera_pipeline import CameraPipeline
+from app.engine.round_timer import RoundTimer
 from app.events.event_bus import InMemoryEventBus, get_event_bus
 from app.inference.reid import ReIDManager
 from app.services.camera_service import CameraService
@@ -91,6 +93,7 @@ class Engine:
         clock: Clock,
         cfg: AppConfig,
         reid_manager: ReIDManager | None = None,
+        round_timer: RoundTimer | None = None,
     ) -> None:
         """Initialise the engine with already-resolved per-camera runtimes.
 
@@ -110,6 +113,7 @@ class Engine:
         self._cfg = cfg
         self._runtimes = runtimes
         self._reid_manager = reid_manager
+        self._round_timer = round_timer
         self._pipelines: dict[int, CameraPipeline] = {}
 
         self._stop_event = threading.Event()
@@ -186,6 +190,7 @@ class Engine:
             cfg=self._cfg,
             store=self._store,
             reid_manager=self._reid_manager,
+            round_timer=self._round_timer,
         )
         pipeline.start()
         self._pipelines[runtime.spec.id] = pipeline
@@ -439,6 +444,26 @@ def build_engine(camera_ids: list[int] | None = None) -> Engine:
         else None
     )
 
+    # Opt-in round timing (PIPELINE_ROUND_TIMING=1): one log line per pull cycle
+    # covering every snapshot camera, reporting capture->processed latency per
+    # camera. Only the snapshot cameras form a "round"; the tracked door camera
+    # runs continuously at its own frame rate and is excluded.
+    snap = cfg.processing.snapshot_pull
+    round_timer = None
+    if os.environ.get("PIPELINE_ROUND_TIMING"):
+        snapshot_ids = [
+            runtime.spec.id
+            for runtime in runtimes
+            if runtime.spec.fps_role.value in snap.roles
+        ]
+        if snapshot_ids:
+            round_timer = RoundTimer(snapshot_ids)
+            logger.info(
+                "round timing enabled for %d snapshot cameras",
+                len(snapshot_ids),
+                extra={"event": "round_timing_enabled", "cameras": snapshot_ids},
+            )
+
     logger.info(
         "engine built",
         extra={"event": "engine_built", "camera_id": len(runtimes)},
@@ -450,4 +475,5 @@ def build_engine(camera_ids: list[int] | None = None) -> Engine:
         clock=clock,
         cfg=cfg,
         reid_manager=reid_manager,
+        round_timer=round_timer,
     )

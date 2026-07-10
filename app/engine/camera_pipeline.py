@@ -33,6 +33,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import threading
+import time
 from collections.abc import Callable
 
 import numpy as np
@@ -53,6 +54,7 @@ from app.domain.models import (
     TrackedDetection,
     ZoneType,
 )
+from app.engine.round_timer import RoundTimer
 from app.events.event_bus import InMemoryEventBus
 from app.events.events import AlertRaised, CameraHealth, HeatmapFlushed
 from app.inference.reid import ReIDManager
@@ -102,6 +104,7 @@ class CameraPipeline:
         store: StateStore | None = None,
         reid_manager: ReIDManager | None = None,
         capture_factory: Callable[[BoundedFrameQueue], CaptureThread] | None = None,
+        round_timer: RoundTimer | None = None,
     ) -> None:
         """Configure the pipeline (does not start any thread).
 
@@ -136,6 +139,9 @@ class CameraPipeline:
         self._store = store if store is not None else get_state_store()
         self._injected_reid = reid_manager
         self._capture_factory = capture_factory
+        # Shared across the snapshot pipelines so one line per round is logged
+        # (see app.engine.round_timer). None unless PIPELINE_ROUND_TIMING is set.
+        self._round_timer = round_timer
         # Opt-in per-frame diagnostic trace: set PIPELINE_TRACE_CAMERA=<id> to log
         # this camera's detections/tracks/crossings each frame (line-tuning aid).
         self._trace_enabled = os.environ.get("PIPELINE_TRACE_CAMERA") == str(spec.id)
@@ -377,7 +383,15 @@ class CameraPipeline:
         """
         assert self._queue is not None  # set in start() before the worker runs
         while not self._stop_event.is_set():
-            packet = self._queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
+            # Snapshot occupancy reports "who is here now", so a queued backlog is
+            # pure latency: take the freshest frame and drop the rest. The tracked
+            # path keeps FIFO — its tracker and line-crossing logic need every
+            # frame it can get, in order.
+            packet = (
+                self._queue.get_latest(timeout=_QUEUE_GET_TIMEOUT_S)
+                if self._is_snapshot_source
+                else self._queue.get(timeout=_QUEUE_GET_TIMEOUT_S)
+            )
             if packet is not None:
                 try:
                     self._process_frame(packet)
@@ -404,7 +418,9 @@ class CameraPipeline:
         if self._dataset_writer is not None and not self._is_snapshot_source:
             self._dataset_writer.save_image(self.camera_id, self._spec.ip, image, ts)
 
+        detect_started = time.perf_counter()
         detections = self._detector.detect(image)
+        detect_seconds = time.perf_counter() - detect_started
 
         # Snapshot occupancy (3s cadence): count detections in-zone directly and
         # publish — no tracker, no presence debounce. ByteTrack can't reliably link
@@ -413,6 +429,16 @@ class CameraPipeline:
             counts = self._zone_eval.count_in_zones(detections)  # type: ignore[union-attr]
             for event in self._occupancy.process_counts(counts, ts):  # type: ignore[union-attr]
                 self._bus.publish(event)
+            if self._round_timer is not None:
+                # packet.ts is the capture instant, so this latency spans the
+                # queue wait too — a backlog shows up as latency >> detect_seconds.
+                self._round_timer.record(
+                    camera_id=self.camera_id,
+                    capture_ts=ts,
+                    finish_ts=self._clock.now(),
+                    detect_seconds=detect_seconds,
+                    detections=len(detections),
+                )
             return
 
         tracked = self._tracker.update(detections, image)

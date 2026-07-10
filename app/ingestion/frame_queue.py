@@ -100,6 +100,43 @@ class BoundedFrameQueue:
                     return None
             return self._buffer.popleft()
 
+    def get_latest(self, timeout: float | None = None) -> FramePacket | None:
+        """Dequeue the NEWEST packet, discarding any older ones still buffered.
+
+        For roles that only report the current state of a scene (snapshot
+        occupancy), a queued backlog is worse than useless: each stale packet
+        costs a full inference and answers a question about the past. Because
+        :meth:`get` is FIFO while :meth:`put` drops from the front, a depth-``N``
+        queue silently adds ``(N-1) x producer_period`` of latency the moment the
+        consumer falls behind the producer — the buffer becomes a delay line, not
+        a shock absorber. Draining to the freshest packet keeps that latency at
+        zero while still absorbing bursts.
+
+        Skipped packets are counted as drops, so the loss stays observable. The
+        packets returned are strictly newer over time, so downstream timestamps
+        remain monotonic (unlike a plain LIFO pop, which would reorder frames and
+        corrupt tracking/crossing logic).
+
+        Args:
+            timeout: Maximum seconds to wait for a packet. ``None`` waits
+                indefinitely; ``0`` (or negative) polls without waiting.
+
+        Returns:
+            The most recent buffered :class:`FramePacket`, or ``None`` if the
+            timeout elapses with the queue still empty.
+        """
+        with self._cond:
+            if not self._buffer:
+                got = self._cond.wait_for(lambda: bool(self._buffer), timeout=timeout)
+                if not got:
+                    return None
+            skipped = len(self._buffer) - 1
+            if skipped:
+                self._dropped += skipped
+            packet = self._buffer[-1]
+            self._buffer.clear()
+            return packet
+
     def qsize(self) -> int:
         """Return the number of packets currently buffered.
 
