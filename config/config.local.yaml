@@ -37,7 +37,7 @@ processing:
     - "10.1.13.21"   # CAM-01 MAIN DOOR
   snapshot_pull:
     roles: ["occupancy"]           # occupancy cameras pull HTTP stills (CPU-cheap)
-    interval_s: 3.0
+    interval_s: 1.0
     http_port: 80
     scheme: "http"
     path_template: "/ISAPI/Streaming/channels/{channel}/picture"
@@ -51,9 +51,15 @@ detector:
   runtime: "openvino"
   confidence: 0.30
   imgsz: 1280
+  # CPU threads per detector. Without this, each of the 12 per-camera OpenVINO
+  # models grabs ALL cores (LATENCY hint) and they serialise, so a round takes
+  # ~= 12 x single-inference time. Capping to ~ cores/cameras lets all 12 run
+  # concurrently. Deployment box = 40 cores / 12 cameras -> 3. Tune on the box:
+  # watch round time (PIPELINE_ROUND_TIMING) and top idle%; 0 = old all-cores.
+  ov_inference_num_threads: 3
 
 tracker:
-  reid_enabled: true               # appearance Re-ID — re-links a person when ByteTrack
+  reid_enabled: false               # appearance Re-ID — re-links a person when ByteTrack
                                    # briefly loses them (glass/reflection band at the door),
                                    # so an exit crossing survives the track-id change.
                                    # Only the tracked path uses it → effectively door-only

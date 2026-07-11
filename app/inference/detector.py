@@ -19,6 +19,7 @@ Both runtimes are handed to Ultralytics as an exported model *format* plus a
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 
 import numpy as np
@@ -36,6 +37,51 @@ _RUNTIME_HINTS: dict[str, tuple[str, str]] = {
     "openvino": ("openvino", "cpu"),
     "tensorrt": ("engine", "cuda:0")
 }
+
+# Guards the one-time OpenVINO compile_model wrap below.
+_OV_THREAD_CAP_LOCK = threading.Lock()
+_ov_thread_cap_installed = False
+
+
+def _install_openvino_thread_cap(num_threads: int) -> None:
+    """Cap OpenVINO's per-model CPU thread count to ``num_threads``.
+
+    Ultralytics compiles every OpenVINO model with ``PERFORMANCE_HINT=LATENCY``
+    and no thread limit, so each detector's inference grabs all cores. With one
+    detector per camera that oversubscribes the CPU and the cameras serialise
+    instead of running concurrently. Ultralytics exposes no config hook, so we
+    wrap :meth:`openvino.Core.compile_model` once, process-wide, to inject
+    ``INFERENCE_NUM_THREADS`` — every subsequently compiled model inherits it.
+
+    Idempotent and cheap: installs the wrap at most once (guarded by a lock), and
+    is a no-op for ``num_threads <= 0``. Because all detectors in this process
+    share the same cap, a single global wrap is sufficient; it is installed
+    before the engine starts any worker thread.
+    """
+    global _ov_thread_cap_installed
+    if num_threads <= 0:
+        return
+    with _OV_THREAD_CAP_LOCK:
+        if _ov_thread_cap_installed:
+            return
+        import openvino as ov
+
+        original = ov.Core.compile_model
+
+        def _capped(self, model, device_name=None, config=None, **kwargs):  # noqa: ANN001
+            merged = dict(config or {})
+            # Respect an explicit caller value; only fill in when unset.
+            merged.setdefault("INFERENCE_NUM_THREADS", str(num_threads))
+            if device_name is None:
+                return original(self, model, config=merged, **kwargs)
+            return original(self, model, device_name=device_name, config=merged, **kwargs)
+
+        ov.Core.compile_model = _capped
+        _ov_thread_cap_installed = True
+        logger.info(
+            "OpenVINO inference thread cap installed",
+            extra={"event": "ov_thread_cap", "num_threads": num_threads},
+        )
 
 
 class YoloDetector:
@@ -64,6 +110,11 @@ class YoloDetector:
 
         self._cfg = cfg
         self._fmt, self._device = _RUNTIME_HINTS[runtime]
+
+        # Cap OpenVINO CPU threads per model BEFORE Ultralytics compiles it, so N
+        # per-camera detectors don't each grab all cores and oversubscribe.
+        if runtime == "openvino":
+            _install_openvino_thread_cap(cfg.ov_inference_num_threads)
 
         from ultralytics import YOLO  # lazy: heavy optional dependency
 

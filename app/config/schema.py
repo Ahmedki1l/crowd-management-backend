@@ -101,6 +101,12 @@ class DetectorConfig(BaseModel):
     iou: float = 0.45
     imgsz: int = 640
     batch_size: int = 4
+    # OpenVINO CPU threads PER detector. 0 = OpenVINO default (LATENCY hint grabs
+    # all cores). With one detector per camera, the default makes every camera's
+    # inference fight for all cores, so N cameras oversubscribe an N-core-plus box
+    # and serialise. Capping each to ~ (cores / num_cameras) lets them run truly
+    # concurrently. Only affects the openvino runtime; ignored otherwise.
+    ov_inference_num_threads: int = 0
 
 
 class TrackerConfig(BaseModel):
