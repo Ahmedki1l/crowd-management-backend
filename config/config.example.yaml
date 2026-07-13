@@ -28,7 +28,6 @@ processing:
     entry_exit: 8
     waiting: 6
     occupancy: 2
-    heatmap: 1
   default_tier: "occupancy"
   camera_allowlist_ips: []       # if non-empty, ONLY these camera IPs pull feed
                                  # (e.g. ["10.1.13.21", "10.1.13.39"]); empty =
@@ -81,11 +80,6 @@ state_machine:
   alert_debounce_frames: 5
   alert_cooldown_seconds: 30
 
-heatmap:
-  grid_cols: 64
-  grid_rows: 36
-  flush_interval_seconds: 60
-
 snapshots:
   dir: "data/snapshots"
 
@@ -100,6 +94,5 @@ retention:
   occupancy_days: 90
   crossing_days: 90
   dwell_days: 90
-  heatmap_days: 180
   alert_days: 365
   snapshot_days: 30

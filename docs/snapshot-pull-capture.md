@@ -65,7 +65,7 @@ return self._build_rtsp_capture(queue)                 # RtspCaptureThread
 ```
 
 `fps_role` is the camera's most motion-sensitive role (`entry_exit > waiting >
-occupancy > heatmap`, see `CameraSpec.fps_role`). So listing `["occupancy"]` in
+occupancy`, see `CameraSpec.fps_role`). So listing `["occupancy"]` in
 `snapshot_pull.roles` routes occupancy-only cameras to snapshot pull while the
 entry gate (`roles: ["entry_exit"]`) stays on RTSP — which is required, because
 line-crossing needs the temporal continuity a 2 s cadence can't give.

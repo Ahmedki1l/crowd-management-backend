@@ -15,8 +15,9 @@ purposes:
   off the pipeline thread and batches them behind one transaction per drained
   event.
 
-Alerts and heatmap grids are persisted by the engine at the point they are
-produced, not here, so this projector ignores those event types.
+Alerts are persisted by the engine at the point they are produced (they carry an
+evidence snapshot and so need the live frame), not here, so this projector ignores
+that event type.
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ class StateProjector:
 
         Args:
             event: An analytics event from the bus. Types this projector does not
-                project (alerts, crossings, dwell, heatmap) are ignored.
+                project (alerts, crossings, dwell) are ignored.
         """
         if isinstance(event, OccupancyUpdate):
             self._store.set_occupancy(

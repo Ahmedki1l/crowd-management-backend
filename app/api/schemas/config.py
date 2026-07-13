@@ -6,7 +6,6 @@ from pydantic import BaseModel
 
 from app.config.schema import (
     DetectorConfig,
-    HeatmapConfig,
     ProcessingConfig,
     StateMachineConfig,
     TrackerConfig,
@@ -18,7 +17,6 @@ class RuntimeConfigOut(BaseModel):
     detector: DetectorConfig
     tracker: TrackerConfig
     state_machine: StateMachineConfig
-    heatmap: HeatmapConfig
 
 
 class RuntimeConfigUpdate(BaseModel):
@@ -26,4 +24,3 @@ class RuntimeConfigUpdate(BaseModel):
     detector: DetectorConfig | None = None
     tracker: TrackerConfig | None = None
     state_machine: StateMachineConfig | None = None
-    heatmap: HeatmapConfig | None = None

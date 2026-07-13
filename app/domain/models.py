@@ -28,7 +28,6 @@ class CameraRole(str, Enum):
     ENTRY_EXIT = "entry_exit"
     WAITING = "waiting"
     OCCUPANCY = "occupancy"
-    HEATMAP = "heatmap"
 
 
 class ZoneType(str, Enum):
@@ -191,7 +190,6 @@ class CameraSpec:
             CameraRole.ENTRY_EXIT,
             CameraRole.WAITING,
             CameraRole.OCCUPANCY,
-            CameraRole.HEATMAP,
         ]
         for role in priority:
             if role in self.roles:

@@ -31,7 +31,6 @@ class FpsTiers(BaseModel):
     entry_exit: float = 8
     waiting: float = 6
     occupancy: float = 2
-    heatmap: float = 1
 
     def for_role(self, role: str) -> float:
         return float(getattr(self, role, self.occupancy))
@@ -136,12 +135,6 @@ class StateMachineConfig(BaseModel):
     alert_cooldown_seconds: float = 30
 
 
-class HeatmapConfig(BaseModel):
-    grid_cols: int = 64
-    grid_rows: int = 36
-    flush_interval_seconds: float = 60
-
-
 class SnapshotsConfig(BaseModel):
     dir: str = "data/snapshots"
 
@@ -163,7 +156,6 @@ class RetentionConfig(BaseModel):
     occupancy_days: int = 90
     crossing_days: int = 90
     dwell_days: int = 90
-    heatmap_days: int = 180
     alert_days: int = 365
     snapshot_days: int = 30
 
@@ -178,7 +170,6 @@ class AppConfig(BaseModel):
     detector: DetectorConfig = Field(default_factory=DetectorConfig)
     tracker: TrackerConfig = Field(default_factory=TrackerConfig)
     state_machine: StateMachineConfig = Field(default_factory=StateMachineConfig)
-    heatmap: HeatmapConfig = Field(default_factory=HeatmapConfig)
     snapshots: SnapshotsConfig = Field(default_factory=SnapshotsConfig)
     dataset_capture: DatasetCaptureConfig = Field(default_factory=DatasetCaptureConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)

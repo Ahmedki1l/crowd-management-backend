@@ -23,7 +23,6 @@ from sqlalchemy.orm import Session
 from app.api.schemas.config import RuntimeConfigOut, RuntimeConfigUpdate
 from app.config.schema import (
     DetectorConfig,
-    HeatmapConfig,
     ProcessingConfig,
     StateMachineConfig,
     TrackerConfig,
@@ -43,7 +42,6 @@ _SECTION_MODELS: dict[str, type[BaseModel]] = {
     "detector": DetectorConfig,
     "tracker": TrackerConfig,
     "state_machine": StateMachineConfig,
-    "heatmap": HeatmapConfig,
 }
 
 

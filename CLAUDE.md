@@ -91,10 +91,7 @@ the wiring never drifts:
 - **`PersistenceProjector`** — `handle()` only enqueues; a background thread drains and writes
   time-series via `session_scope()` + repositories. Keeps slow DB writes off the hot path.
   Occupancy samples are throttled per-zone (live updates can be per-frame).
-- **`DigitalTwinPublisher`** — outbound DT push, wired only if **both** `digital_twin.push_enabled`
-  **and** `digital_twin.push_url` are set; otherwise it stays `None` and is never subscribed.
-
-**Exception:** alerts (with evidence snapshots) and heatmap grids are persisted by the engine
+**Exception:** alerts (with evidence snapshots) are persisted by the engine
 **at the point they're produced** (`app/engine/camera_pipeline.py`), not by the projectors —
 because they need the live frame image. The projectors deliberately ignore those event types.
 

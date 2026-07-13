@@ -8,7 +8,6 @@ from app.db.models.geometry import Line, Zone
 from app.db.models.timeseries import (
     CrossingEvent,
     DwellSession,
-    HeatmapGrid,
     OccupancySample,
 )
 
@@ -20,7 +19,6 @@ __all__ = [
     "OccupancySample",
     "CrossingEvent",
     "DwellSession",
-    "HeatmapGrid",
     "Alert",
     "Snapshot",
     "ConfigRow",

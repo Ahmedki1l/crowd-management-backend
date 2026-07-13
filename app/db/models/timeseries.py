@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -46,19 +46,3 @@ class DwellSession(Base):
     dwell_s: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     __table_args__ = (Index("ix_dwell_sessions_zone_enter", "zone_id", "enter_ts"),)
-
-
-class HeatmapGrid(Base):
-    """Pre-aggregated density grid per camera per time bucket (HLD 7 storage note)."""
-
-    __tablename__ = "heatmap_grid"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    camera_id: Mapped[int] = mapped_column(ForeignKey("cameras.id", ondelete="CASCADE"))
-    ts_bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    cols: Mapped[int] = mapped_column(Integer)
-    rows: Mapped[int] = mapped_column(Integer)
-    # Sparse cells: {"r,c": weight, ...} — bounds storage vs a dense matrix.
-    grid: Mapped[dict[str, float]] = mapped_column(JSON)
-
-    __table_args__ = (Index("ix_heatmap_grid_camera_bucket", "camera_id", "ts_bucket"),)

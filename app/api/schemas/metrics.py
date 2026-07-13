@@ -99,22 +99,6 @@ class AlertOut(BaseModel):
     status: str
 
 
-class HeatmapCell(BaseModel):
-    r: int
-    c: int
-    weight: float
-
-
-class HeatmapOut(BaseModel):
-    camera_id: int
-    cols: int
-    rows: int
-    cells: list[HeatmapCell]
-    overlay_url: str | None = None
-    from_ts: float | None = None
-    to_ts: float | None = None
-
-
 class StateOut(BaseModel):
     """Consolidated snapshot for the DT initial load (GET /state)."""
 

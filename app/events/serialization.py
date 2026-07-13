@@ -23,7 +23,6 @@ from app.events.events import (
     DwellClosed,
     Event,
     EventType,
-    HeatmapFlushed,
     OccupancyUpdate,
     WaitingUpdate,
 )
@@ -36,7 +35,6 @@ _REGISTRY: dict[str, type[Event]] = {
     EventType.ALERT.value: AlertRaised,
     EventType.CROSSING.value: CrossingEvent,
     EventType.DWELL_CLOSED.value: DwellClosed,
-    EventType.HEATMAP_FLUSH.value: HeatmapFlushed,
     EventType.CAMERA_HEALTH.value: CameraHealth,
 }
 

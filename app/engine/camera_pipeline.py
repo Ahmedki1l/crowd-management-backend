@@ -13,13 +13,13 @@ It owns:
 * the localisation collaborators (:class:`~app.localisation.zones.ZoneEvaluator`,
   :class:`~app.localisation.state_machine.ZonePresenceTracker`,
   :class:`~app.localisation.lines.LineCrossingDetector`);
-* the analytics calculators (occupancy, entry/exit, safety, waiting, heatmap),
-  each scoped to the zones/lines that matter for its role.
+* the analytics calculators (occupancy, entry/exit, safety, waiting), each scoped
+  to the zones/lines that matter for its role.
 
 The pipeline is a pure orchestrator: the calculators are side-effect-free and
-return events, and the pipeline publishes them. The two flows that *do* have side
-effects — persisting an alert (with an evidence snapshot) and flushing a heatmap
-grid — are owned here, at the point the event is produced, exactly as the
+return events, and the pipeline publishes them. The one flow that *does* have a side
+effect — persisting an alert with its evidence snapshot, which needs the live frame —
+is owned here, at the point the event is produced, exactly as the
 analytics layer's contract requires. Everything else (occupancy/crossing/dwell
 persistence and the read-model projection) is handled by the bus projectors wired
 in :mod:`app.api.app`, so the pipeline only ever ``publish``-es those.
@@ -39,12 +39,10 @@ from collections.abc import Callable
 import numpy as np
 
 from app.analytics.entry_exit import EntryExitCalculator
-from app.analytics.heatmap import GridSnapshot, HeatmapAccumulator
 from app.analytics.occupancy import OccupancyCalculator
 from app.analytics.safety import SafetyCalculator
 from app.analytics.waiting import WaitingCalculator
 from app.config.schema import AppConfig, SnapshotPullConfig
-from app.db.repositories.heatmap_repo import HeatmapRepository
 from app.db.session import session_scope
 from app.domain.interfaces import Clock, Detector, EmbeddingExtractor, Tracker
 from app.domain.models import (
@@ -56,7 +54,7 @@ from app.domain.models import (
 )
 from app.engine.round_timer import RoundTimer
 from app.events.event_bus import InMemoryEventBus
-from app.events.events import AlertRaised, CameraHealth, HeatmapFlushed
+from app.events.events import AlertRaised, CameraHealth
 from app.inference.reid import ReIDManager
 from app.ingestion.capture import CaptureThread, RtspCaptureThread, SnapshotCaptureThread
 from app.ingestion.dataset_capture import DatasetWriter
@@ -69,7 +67,6 @@ from app.localisation.zones import ZoneEvaluator
 from app.services.alert_service import AlertService
 from app.services.state_store import CameraHealthState, StateStore, get_state_store
 from app.utils.logging import get_logger
-from app.utils.timeutil import to_datetime
 
 logger = get_logger(__name__)
 
@@ -192,7 +189,6 @@ class CameraPipeline:
         self._entry_exit: EntryExitCalculator | None = None
         self._safety: SafetyCalculator | None = None
         self._waiting: WaitingCalculator | None = None
-        self._heatmap: HeatmapAccumulator | None = None
 
         # Health heartbeat throttle (worker thread only — no lock needed).
         self._last_health_emit: float | None = None
@@ -374,13 +370,6 @@ class CameraPipeline:
             sm.alert_cooldown_seconds,
         )
         self._waiting = WaitingCalculator(waiting_zones, self._clock)
-        self._heatmap = HeatmapAccumulator(
-            self.camera_id,
-            self._cfg.heatmap.grid_cols,
-            self._cfg.heatmap.grid_rows,
-            self._cfg.heatmap.flush_interval_seconds,
-            self._clock,
-        )
 
     # ------------------------------------------------------------------ #
     # Worker loop
@@ -468,7 +457,6 @@ class CameraPipeline:
 
         self._publish_analytics(presence, crossings, ts)
         self._handle_alerts(presence.confirmed, counts, ts, image)
-        self._handle_heatmap(tracked, image, ts)
 
     def _trace_frame(
         self,
@@ -611,48 +599,6 @@ class CameraPipeline:
                 },
             )
             return None
-
-    def _handle_heatmap(
-        self, tracked: list[TrackedDetection], image: np.ndarray, ts: float
-    ) -> None:
-        """Accumulate ground points and persist/publish a grid on flush."""
-        height, width = image.shape[:2]
-        if width <= 0 or height <= 0:
-            return
-        self._heatmap.accumulate(tracked, width, height, ts)  # type: ignore[union-attr]
-        snapshot = self._heatmap.maybe_flush(ts)  # type: ignore[union-attr]
-        if snapshot is None:
-            return
-        self._persist_heatmap(snapshot)
-        self._bus.publish(
-            HeatmapFlushed(
-                ts=ts, camera_id=self.camera_id, ts_bucket=snapshot.ts_bucket
-            )
-        )
-
-    def _persist_heatmap(self, snapshot: GridSnapshot) -> None:
-        """Persist a flushed heatmap grid snapshot.
-
-        Failures are logged with their stack and swallowed so a DB hiccup cannot
-        stall the pipeline; the next interval's grid will be persisted normally.
-        """
-        try:
-            with session_scope() as session:
-                HeatmapRepository(session).add_grid(
-                    camera_id=snapshot.camera_id,
-                    ts_bucket=to_datetime(snapshot.ts_bucket),
-                    cols=snapshot.cols,
-                    rows=snapshot.rows,
-                    grid=snapshot.cells,
-                )
-        except Exception:  # noqa: BLE001 - heatmap persistence is non-critical
-            logger.exception(
-                "failed to persist heatmap grid",
-                extra={
-                    "camera_id": self.camera_id,
-                    "event": "heatmap_persist_failed",
-                },
-            )
 
     # ------------------------------------------------------------------ #
     # Health

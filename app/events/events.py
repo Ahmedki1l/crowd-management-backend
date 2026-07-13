@@ -22,7 +22,6 @@ class EventType(str, Enum):
     ALERT = "alert"
     CROSSING = "crossing"
     DWELL_CLOSED = "dwell_closed"
-    HEATMAP_FLUSH = "heatmap_flush"
     CAMERA_HEALTH = "camera_health"
 
 
@@ -197,16 +196,6 @@ class AlertRaised(Event):
             "snapshot_url": self.snapshot_url,
             "dt_space_id": self.dt_space_id,
         }
-
-
-@dataclass(frozen=True)
-class HeatmapFlushed(Event):
-    camera_id: int = 0
-    ts_bucket: float = 0.0
-    type: EventType = field(default=EventType.HEATMAP_FLUSH, init=False)
-
-    def payload(self) -> dict[str, Any]:
-        return {**super().payload(), "camera_id": self.camera_id, "ts_bucket": self.ts_bucket}
 
 
 @dataclass(frozen=True)

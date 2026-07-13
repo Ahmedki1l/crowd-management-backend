@@ -18,7 +18,6 @@ from app.events.events import (
     CrossingEvent,
     DwellClosed,
     Event,
-    HeatmapFlushed,
     OccupancyUpdate,
     WaitingUpdate,
 )
@@ -38,7 +37,6 @@ _EVENTS: list[Event] = [
     AlertRaised(
         ts=1000.0, alert_type=AlertType.OVERCROWDING, zone_id=5, camera_id=2, detail="full"
     ),
-    HeatmapFlushed(ts=1000.0, camera_id=4, ts_bucket=960.0),
     CameraHealth(ts=1000.0, camera_id=4, fps=15.0, queue_depth=1, healthy=False),
 ]
 

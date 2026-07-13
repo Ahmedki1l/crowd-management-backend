@@ -6,7 +6,7 @@ which selects a different branch of :class:`~app.engine.camera_pipeline.CameraPi
 from the one :mod:`tests.integration.test_camera_pipeline` covers: detections are counted
 in-zone directly and :meth:`OccupancyCalculator.process_counts` publishes the result,
 while the whole tracked half of the pipeline (tracker, Re-ID, presence machine, line
-crossing, entry/exit, safety, waiting, heatmap) is skipped by an early return in
+crossing, entry/exit, safety, waiting) is skipped by an early return in
 ``_process_frame``.
 
 ``count_from_detections`` defaults to ``False`` in the schema, so that branch is only
@@ -247,7 +247,7 @@ def test_snapshot_path_never_runs_the_tracked_half(
 
     ``tracker.update`` is the first statement after that return, so a call count of zero
     is sufficient: nothing downstream of it (Re-ID, presence machine, line crossing,
-    entry/exit, safety, waiting, heatmap) can have run either. That inertness is the
+    entry/exit, safety, waiting) can have run either. That inertness is the
     premise the removal work rests on — if this ever fails, the premise is gone.
     """
     _, _, tracker = snapshot_run

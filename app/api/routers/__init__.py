@@ -20,7 +20,6 @@ from app.api.routers.config import router as config_router
 from app.api.routers.engine import router as engine_router
 from app.api.routers.entry_exit import router as entry_exit_router
 from app.api.routers.health import router as health_router
-from app.api.routers.heatmap import router as heatmap_router
 from app.api.routers.history import router as history_router
 from app.api.routers.lines import router as lines_router
 from app.api.routers.occupancy import router as occupancy_router
@@ -40,7 +39,6 @@ all_routers: list[APIRouter] = [
     entry_exit_router,
     waiting_router,
     alerts_router,
-    heatmap_router,
     state_router,
     history_router,
     stream_router,

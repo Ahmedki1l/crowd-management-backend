@@ -3,7 +3,7 @@
 
 Copies cameras, zones, lines, and config from a SQLite database into an already-
 initialised SQL Server database.  Time-series tables (occupancy_samples,
-crossing_events, dwell_sessions, heatmap_grid) and alerts/snapshots are skipped
+crossing_events, dwell_sessions) and alerts/snapshots are skipped
 by default; pass --include-timeseries / --include-alerts to copy them too.
 
 Usage
@@ -55,7 +55,6 @@ _TIMESERIES_TABLES = [
     "occupancy_samples",
     "crossing_events",
     "dwell_sessions",
-    "heatmap_grid",
 ]
 
 
@@ -176,7 +175,7 @@ def main() -> int:
     parser.add_argument(
         "--include-timeseries",
         action="store_true",
-        help="Also copy occupancy_samples, crossing_events, dwell_sessions, heatmap_grid",
+        help="Also copy occupancy_samples, crossing_events, dwell_sessions",
     )
     parser.add_argument(
         "--include-alerts",

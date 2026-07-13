@@ -125,7 +125,7 @@ collapse to one identity.
 ## API surface (`/api/v1`, JWT/API-key auth on all routes)
 
 - **Config** — `/cameras`, `/cameras/{id}/test`, `/zones`, `/lines`, `/config`
-- **Live metrics** — `/state`, `/occupancy`, `/entry-exit`, `/waiting`, `/alerts`, `/heatmap`, `/stats`
+- **Live metrics** — `/state`, `/occupancy`, `/entry-exit`, `/waiting`, `/alerts`, `/stats`
 - **History** — `/history/{occupancy,entry-exit,waiting,alerts}`
 - **Realtime & ops** — `/stream` (SSE), `/snapshots/{path}`, `/alerts/{id}/ack`, `/cameras/{id}/health`, `/health`, `/ready`, `/metrics`
 
@@ -156,7 +156,7 @@ app/
   ingestion/     RTSP capture, bounded queue, stream URLs
   inference/     detector, tracker, Re-ID, fakes, factory
   localisation/  geometry, zones, lines, state machine
-  analytics/     occupancy, entry_exit, safety, waiting, heatmap
+  analytics/     occupancy, entry_exit, safety, waiting
   engine/        per-camera pipeline + multi-camera lifecycle
   events/        event schema + in-process & Redis buses + serialization
   publish/       Digital Twin push + SSE fan-out
