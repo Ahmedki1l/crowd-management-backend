@@ -90,9 +90,10 @@ dataset_capture:
   dir: "training_data"
   min_interval_s: 0.0            # 0 = save every snapshot pull; >0 throttles per camera
 
+# How long history is kept. Enforced by app/services/retention.py (0 = keep forever).
+# The minute grain is the expensive one (a row per space per minute); the hour grain is
+# small enough to keep for years.
 retention:
-  occupancy_days: 90
+  occupancy_minute_days: 30
+  occupancy_hour_days: 730
   crossing_days: 90
-  dwell_days: 90
-  alert_days: 365
-  snapshot_days: 30

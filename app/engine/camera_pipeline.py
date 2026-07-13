@@ -472,10 +472,14 @@ class CameraPipeline:
         cross-camera ``global_id`` via the Re-ID gallery, and **promotes that
         global_id to the effective ``track_id``** so every downstream consumer
         (zone membership, line crossing, presence state machine, dwell sessions)
-        keys on the appearance-stable identity. This is what makes Re-ID actually
-        count: it de-duplicates a person across overlapping cameras and preserves
-        identity across a leave/re-enter that ByteTrack alone would renumber
-        (HLD 5.6).
+        keys on the appearance-stable identity, preserving it across a leave/re-enter
+        that ByteTrack alone would renumber (HLD 5.6).
+
+        It does **not** de-duplicate a person across overlapping cameras, despite what
+        this docstring used to claim. Zones are per-camera rows and
+        ``OccupancyService.by_space`` *sums* their counts, so the same ``global_id``
+        seen by two cameras still contributes 1 + 1. Cross-camera de-duplication would
+        require counting distinct identities at the space level, which nothing does.
         """
         if self._extractor is None or self._reid is None or not tracked:
             return tracked

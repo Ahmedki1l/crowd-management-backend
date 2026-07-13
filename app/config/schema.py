@@ -146,7 +146,15 @@ class DatasetCaptureConfig(BaseModel):
 
 
 class RetentionConfig(BaseModel):
-    occupancy_days: int = 90
+    """How long each history table is kept. Enforced by ``app.services.retention``.
+
+    The minute grain is the expensive one — one row per space per minute — while the hour
+    grain is small enough to keep for years. Set a value to ``0`` to keep that table
+    forever.
+    """
+
+    occupancy_minute_days: int = 30
+    occupancy_hour_days: int = 730
     crossing_days: int = 90
 
 

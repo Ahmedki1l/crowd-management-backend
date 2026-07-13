@@ -37,7 +37,6 @@ load_dotenv()
 from sqlalchemy import MetaData, Table, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
-
 # ---------------------------------------------------------------------------
 # Migration order matters: parent tables before children (FK constraints).
 # ---------------------------------------------------------------------------

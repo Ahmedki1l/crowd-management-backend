@@ -27,6 +27,8 @@ from app.db.session import (
 )
 from app.engine.manager import reset_engine_manager
 from app.events.event_bus import reset_event_bus
+from app.services.history_worker import HistoryWorker
+from app.services.occupancy_sampler import OccupancySampler
 from app.services.state_store import reset_state_store
 from app.utils.clock import FakeClock
 from app.utils.security import encode_jwt
@@ -43,7 +45,17 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     Sets the secrets/config env the app reads, clears the cached settings,
     state-store and event-bus, then binds a fresh in-memory engine and creates
     the schema. Disposes the engine on teardown so no state leaks between tests.
+
+    The history writers never launch their threads. They poll and write on a timer, and
+    the in-memory SQLite engine is a single shared connection (StaticPool) — a 1 Hz
+    background writer racing the test's own session on it makes every DB-touching test
+    flaky. They are neutered here rather than behind a production flag, because a test's
+    determinism problem should not buy production config surface that could silently
+    disable history. They have their own direct tests (``test_occupancy_sampler``,
+    ``test_history_worker``), which drive a tick at a time.
     """
+    monkeypatch.setattr(OccupancySampler, "start", lambda self: None)
+    monkeypatch.setattr(HistoryWorker, "start", lambda self: None)
     monkeypatch.setenv("DATABASE_URL", _TEST_DB_URL)
     monkeypatch.setenv("API_AUTH_SECRET", _TEST_AUTH_SECRET)
     monkeypatch.setenv("CAMERA_CREDENTIALS_KEY", Fernet.generate_key().decode())

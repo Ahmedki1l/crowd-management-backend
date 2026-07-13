@@ -26,7 +26,6 @@ import queue
 import threading
 
 from app.db.repositories.crossing_repo import CrossingRepository
-from app.db.repositories.occupancy_repo import OccupancyRepository
 from app.db.session import session_scope
 from app.events.events import (
     CameraHealth,
@@ -40,12 +39,6 @@ from app.utils.logging import get_logger
 from app.utils.timeutil import to_datetime
 
 logger = get_logger(__name__)
-
-# Default minimum spacing between persisted occupancy samples per zone. Live
-# occupancy updates can arrive every frame; persisting each one would flood the
-# time-series table without adding analytical value, so we throttle to one
-# sample per zone per interval. History queries bucket-average anyway (HLD 9).
-_DEFAULT_PERSIST_INTERVAL_S = 5.0
 
 # How long the worker waits for the next event before re-checking the stop flag.
 _QUEUE_POLL_TIMEOUT_S = 0.5
@@ -116,26 +109,16 @@ class PersistenceProjector:
     :meth:`handle` enqueues events without blocking; a background worker drains
     the queue and writes each event through a fresh ``session_scope()``
     transaction. Per-event failures are logged and skipped so one bad write never
-    stalls the stream. Occupancy samples are throttled per zone (see
-    ``persist_interval``) to bound write volume.
+    stalls the stream. Occupancy history is NOT written here: it is aggregated at a
+    fixed rate by :class:`~app.services.occupancy_sampler.OccupancySampler`, because a
+    change-driven event stream cannot produce a time-weighted average.
     """
 
-    def __init__(self, persist_interval: float = _DEFAULT_PERSIST_INTERVAL_S) -> None:
-        """Configure the projector (does not start the worker thread).
-
-        Args:
-            persist_interval: Minimum seconds between persisted occupancy samples
-                for a given zone. Must be non-negative; ``0`` disables throttling.
-        """
-        if persist_interval < 0:
-            raise ValueError("persist_interval must be non-negative")
-        self._persist_interval = persist_interval
+    def __init__(self) -> None:
+        """Configure the projector (does not start the worker thread)."""
         self._queue: queue.Queue[Event] = queue.Queue()
         self._stop_event = threading.Event()
         self._worker: threading.Thread | None = None
-        # Per-zone epoch-seconds of the last persisted occupancy sample. Read and
-        # written only on the single worker thread, so it needs no lock.
-        self._last_occupancy_write: dict[int, float] = {}
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -174,14 +157,14 @@ class PersistenceProjector:
     def handle(self, event: Event) -> None:
         """Enqueue an event for durable storage without blocking.
 
-        Only event types this projector persists (occupancy samples, crossings) are
+        Only event types this projector persists (crossings) are
         queued; others are dropped here so the worker never wakes for work it would
         ignore.
 
         Args:
             event: The analytics event to persist asynchronously.
         """
-        if isinstance(event, (OccupancyUpdate, CrossingEvent)):
+        if isinstance(event, CrossingEvent):
             self._queue.put_nowait(event)
 
     # ------------------------------------------------------------------ #
@@ -210,21 +193,9 @@ class PersistenceProjector:
 
     def _persist(self, event: Event) -> None:
         """Write one event to its time-series table in a fresh transaction."""
-        if isinstance(event, OccupancyUpdate):
-            self._persist_occupancy(event)
-        elif isinstance(event, CrossingEvent):
+        if isinstance(event, CrossingEvent):
             self._persist_crossing(event)
 
-    def _persist_occupancy(self, event: OccupancyUpdate) -> None:
-        """Append an occupancy sample, throttled to one per zone per interval."""
-        if not self._should_persist_occupancy(event.zone_id, event.ts):
-            return
-        ts = to_datetime(event.ts)
-        with session_scope() as session:
-            OccupancyRepository(session).add_sample(event.zone_id, ts, event.count)
-        # Record the write only after the transaction committed, so a failed
-        # write does not advance the throttle and silently drop the next sample.
-        self._last_occupancy_write[event.zone_id] = event.ts
 
     def _persist_crossing(self, event: CrossingEvent) -> None:
         """Persist one directional line-crossing event."""
@@ -239,9 +210,3 @@ class PersistenceProjector:
             )
 
 
-    def _should_persist_occupancy(self, zone_id: int, ts: float) -> bool:
-        """Return whether enough time has elapsed to persist this zone's sample."""
-        if self._persist_interval <= 0:
-            return True
-        last = self._last_occupancy_write.get(zone_id)
-        return last is None or (ts - last) >= self._persist_interval

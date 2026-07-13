@@ -6,7 +6,8 @@ from app.db.models.config import ConfigRow
 from app.db.models.geometry import Line, Zone
 from app.db.models.timeseries import (
     CrossingEvent,
-    OccupancySample,
+    OccupancyHour,
+    OccupancyMinute,
 )
 
 __all__ = [
@@ -14,7 +15,8 @@ __all__ = [
     "Camera",
     "Zone",
     "Line",
-    "OccupancySample",
+    "OccupancyMinute",
+    "OccupancyHour",
     "CrossingEvent",
     "ConfigRow",
 ]

@@ -1,21 +1,25 @@
 """Integration tests for the historical time-series router (HLD 8.3).
 
-Raw time-series rows (occupancy samples, crossing events) are inserted directly
-through their repositories, then the matching ``/api/v1/history/*`` endpoints are
-queried with an explicit ``from``/``to`` window and ``bucket`` width. Assertions
-cover the bucketed aggregation each endpoint performs: mean occupancy and net
-crossings.
+Rows are inserted directly through their repositories, then the matching
+``/api/v1/history/*`` endpoints are queried with an explicit ``from``/``to`` window.
+
+Occupancy history is pre-aggregated, so these seed rollup buckets rather than raw
+samples and assert the endpoint serves the stored grain: the space series, the floor
+aggregation, the filters, and that a bucket width we do not store is refused rather
+than silently re-bucketed. The rollup arithmetic itself is covered in
+``tests/unit/test_history_worker.py``.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.repositories.crossing_repo import CrossingRepository
-from app.db.repositories.occupancy_repo import OccupancyRepository
+from app.db.repositories.occupancy_repo import Grain, OccupancyRepository, RollupRow
 
 # A clean hour boundary so 10:00/10:30 share one 1h bucket and 11:00 starts the next.
 _BASE = datetime(2024, 6, 12, 10, 0, tzinfo=UTC)
@@ -30,49 +34,125 @@ def _at(hour: int, minute: int = 0) -> datetime:
     return _BASE.replace(hour=hour, minute=minute)
 
 
-def test_occupancy_history_returns_mean_per_bucket(
+@pytest.fixture
+def line_id(session: Session, make_camera, make_line) -> int:
+    """A real line row. Crossings reference it, and foreign keys are now enforced."""
+    camera = make_camera(session, name="gate-cam", ip="10.0.0.9")
+    return make_line(session, camera_id=camera.id).id
+
+
+def _hour_row(space_id: str, floor: str | None, hour: int, avg: float, peak: int) -> RollupRow:
+    return RollupRow(
+        space_id=space_id,
+        floor=floor,
+        bucket_ts=_at(hour),
+        avg=avg,
+        peak=peak,
+        min=0,
+        samples=3600,
+        cameras_healthy=2,
+        cameras_total=2,
+    )
+
+
+def _seed_hours(session: Session) -> None:
+    repo = OccupancyRepository(session)
+    repo.upsert(Grain.HOUR, _hour_row("b1-waiting-area", "B1", 10, avg=4.0, peak=9))
+    repo.upsert(Grain.HOUR, _hour_row("b1-waiting-area", "B1", 11, avg=6.0, peak=12))
+    repo.upsert(Grain.HOUR, _hour_row("gf-waiting-area", "GF", 10, avg=1.0, peak=3))
+    session.commit()
+
+
+def test_occupancy_history_returns_one_series_per_space(
     client: TestClient, auth_headers: dict[str, str], session: Session
 ) -> None:
-    repo = OccupancyRepository(session)
-    repo.add_sample(zone_id=1, ts=_at(10, 0), count=4)
-    repo.add_sample(zone_id=1, ts=_at(10, 30), count=6)
-    session.commit()
+    _seed_hours(session)
+
+    response = client.get(
+        "/api/v1/history/occupancy", params=_WINDOW, headers=auth_headers
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [s["space_id"] for s in body["series"]] == [
+        "b1-waiting-area",
+        "gf-waiting-area",
+    ]
+    b1 = body["series"][0]
+    assert [p["avg"] for p in b1["points"]] == [4.0, 6.0]
+    assert [p["peak"] for p in b1["points"]] == [9, 12]
+
+
+@pytest.mark.parametrize(
+    ("filter_param", "expected_spaces"),
+    [
+        ({"floor": "GF"}, ["gf-waiting-area"]),
+        ({"space_id": "b1-waiting-area"}, ["b1-waiting-area"]),
+        ({}, ["b1-waiting-area", "gf-waiting-area"]),
+    ],
+    ids=["by-floor", "by-space", "unfiltered"],
+)
+def test_occupancy_history_filters_the_series(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    session: Session,
+    filter_param: dict[str, str],
+    expected_spaces: list[str],
+) -> None:
+    _seed_hours(session)
 
     response = client.get(
         "/api/v1/history/occupancy",
-        params={"zone_id": 1, **_WINDOW},
+        params={**_WINDOW, **filter_param},
         headers=auth_headers,
     )
 
-    assert response.status_code == 200
-    points = response.json()["points"]
-    assert [p["value"] for p in points] == [5.0]
+    assert [s["space_id"] for s in response.json()["series"]] == expected_spaces
 
 
-def test_occupancy_history_separates_distinct_buckets(
+def test_occupancy_history_rejects_a_bucket_that_is_not_stored(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Only the stored grains exist; re-bucketing at read time is what rollups avoid."""
+    response = client.get(
+        "/api/v1/history/occupancy",
+        params={**_WINDOW, "bucket": "15m"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_floor_history_sums_the_spaces_on_a_floor(
     client: TestClient, auth_headers: dict[str, str], session: Session
 ) -> None:
     repo = OccupancyRepository(session)
-    repo.add_sample(zone_id=1, ts=_at(10, 0), count=4)
-    repo.add_sample(zone_id=1, ts=_at(11, 0), count=8)
+    # Two spaces on one floor, same hour: the floor is their sum.
+    repo.upsert(Grain.HOUR, _hour_row("b1-waiting-area", "B1", 10, avg=4.0, peak=9))
+    repo.upsert(Grain.HOUR, _hour_row("b1-lobby", "B1", 10, avg=2.5, peak=5))
     session.commit()
 
     response = client.get(
-        "/api/v1/history/occupancy",
-        params={"zone_id": 1, **_WINDOW},
-        headers=auth_headers,
+        "/api/v1/history/occupancy/floors", params=_WINDOW, headers=auth_headers
     )
 
-    assert [p["value"] for p in response.json()["points"]] == [4.0, 8.0]
+    assert response.status_code == 200, response.text
+    floors = response.json()["floors"]
+    assert len(floors) == 1
+    assert floors[0]["floor"] == "B1"
+    assert floors[0]["space_ids"] == ["b1-lobby", "b1-waiting-area"]
+    point = floors[0]["points"][0]
+    assert point["avg"] == 6.5  # 4.0 + 2.5
+    assert point["peak"] == 14  # 9 + 5
 
 
 def test_entry_exit_history_returns_net_per_bucket(
-    client: TestClient, auth_headers: dict[str, str], session: Session
+    client: TestClient, auth_headers: dict[str, str], session: Session, line_id: int
 ) -> None:
     repo = CrossingRepository(session)
-    repo.add(line_id=1, area_id="lobby", ts=_at(10, 0), direction="in", track_ref=1)
-    repo.add(line_id=1, area_id="lobby", ts=_at(10, 10), direction="in", track_ref=2)
-    repo.add(line_id=1, area_id="lobby", ts=_at(10, 20), direction="out", track_ref=3)
+    repo.add(line_id=line_id, area_id="lobby", ts=_at(10, 0), direction="in", track_ref=1)
+    repo.add(line_id=line_id, area_id="lobby", ts=_at(10, 10), direction="in", track_ref=2)
+    repo.add(line_id=line_id, area_id="lobby", ts=_at(10, 20), direction="out", track_ref=3)
     session.commit()
 
     response = client.get(
@@ -92,12 +172,12 @@ def _noon(year: int, month: int, day: int) -> datetime:
 
 
 def test_entry_exit_daily_returns_todays_in_and_out(
-    client: TestClient, auth_headers: dict[str, str], session: Session
+    client: TestClient, auth_headers: dict[str, str], session: Session, line_id: int
 ) -> None:
     repo = CrossingRepository(session)
-    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
-    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=2)
-    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="out", track_ref=3)
+    repo.add(line_id=line_id, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
+    repo.add(line_id=line_id, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=2)
+    repo.add(line_id=line_id, area_id="gate", ts=_noon(2024, 6, 12), direction="out", track_ref=3)
     session.commit()
 
     response = client.get(
@@ -117,11 +197,11 @@ def test_entry_exit_daily_returns_todays_in_and_out(
 
 
 def test_entry_exit_daily_excludes_other_days(
-    client: TestClient, auth_headers: dict[str, str], session: Session
+    client: TestClient, auth_headers: dict[str, str], session: Session, line_id: int
 ) -> None:
     repo = CrossingRepository(session)
-    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
-    repo.add(line_id=1, area_id="gate", ts=_noon(2024, 6, 13), direction="in", track_ref=2)
+    repo.add(line_id=line_id, area_id="gate", ts=_noon(2024, 6, 12), direction="in", track_ref=1)
+    repo.add(line_id=line_id, area_id="gate", ts=_noon(2024, 6, 13), direction="in", track_ref=2)
     session.commit()
 
     response = client.get(

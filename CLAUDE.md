@@ -110,8 +110,11 @@ restart, surfacing only via `is_healthy()`/`CameraHealth`.
 
 **Re-ID detail:** when enabled, the engine builds **one shared `ReIDManager` gallery** across
 all pipelines. `_attach_identities` promotes the appearance-stable `global_id` to the working
-`track_id`, so every downstream consumer (zones, lines, presence, dwell) keys on identity that
-survives leave/re-enter and overlapping cameras (avoids double-counting). A pipeline built with
+`track_id`, so every downstream consumer (zones, lines, presence) keys on identity that
+survives leave/re-enter. **It does not de-duplicate across overlapping cameras**: zones are
+per-camera rows and `by_space` sums their counts, so one `global_id` in two cameras still
+counts twice. Cross-camera de-dup would need distinct-identity counting at the space level.
+A pipeline built with
 an `embedding_extractor` but `reid_manager=None` silently builds its **own per-camera** gallery
 (single-camera Re-ID only) — cross-camera de-dup depends on `build_engine` injecting the shared
 one, so wiring pipelines outside it loses cross-camera identity with no error.

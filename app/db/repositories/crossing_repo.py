@@ -101,3 +101,13 @@ class CrossingRepository:
         in_count = int(counts.get(CrossingDirection.IN.value, 0))
         out_count = int(counts.get(CrossingDirection.OUT.value, 0))
         return {"in": in_count, "out": out_count, "net": in_count - out_count}
+
+    def delete_before(self, cutoff: datetime) -> int:
+        """Delete crossings recorded before ``cutoff``. Returns the number removed."""
+        rows = self._session.scalars(
+            select(CrossingEvent).where(CrossingEvent.ts < cutoff)
+        ).all()
+        for row in rows:
+            self._session.delete(row)
+        self._session.flush()
+        return len(rows)

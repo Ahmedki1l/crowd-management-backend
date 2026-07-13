@@ -65,7 +65,7 @@ pip install -e ".[dev]"                      # core + test deps (no GPU/models n
 cp .env.example .env                         # set CAMERA_CREDENTIALS_KEY:
 python -c "from app.services.credentials import CredentialCipher; print(CredentialCipher.generate_key())"
 
-pytest                                        # 214 tests, green without cameras/GPU/models
+pytest                                        # 308 tests, green without cameras/GPU/models
 python scripts/seed_demo.py                   # register a demo camera + zones + line
 uvicorn app.api.app:app --reload             # API at http://localhost:8008
 ```
@@ -127,7 +127,8 @@ collapse to one identity.
 
 - **Config** — `/cameras`, `/cameras/{id}/test`, `/zones`, `/lines`, `/config`
 - **Live metrics** — `/state`, `/occupancy`, `/occupancy/{spaces,floors}`, `/entry-exit`, `/stats`
-- **History** — `/history/{occupancy,entry-exit,entry-exit/daily}`
+- **History** — `/history/occupancy` (per space), `/history/occupancy/floors` (per floor),
+  `/history/entry-exit`, `/history/entry-exit/daily`
 - **Realtime & ops** — `/stream` (SSE), `/engine/*`, `/tools/*`, `/cameras/{id}/health`, `/health`, `/ready`, `/metrics`
 
 > **Camera credentials are write-only.** Passwords are accepted on POST/PATCH
@@ -170,7 +171,7 @@ config/ models/ scripts/ migrations/ tests/
 ## Testing
 
 ```bash
-pytest                      # 214 unit + integration tests
+pytest                      # 308 unit + integration tests
 pytest tests/unit           # geometry, state machine, calculators, Re-ID gallery, crypto, JWT
 pytest --timeout=30         # guard threaded pipeline/bus tests against hangs
 ```
@@ -187,6 +188,6 @@ installed (`requires_inference`).
 
 People are tracked **anonymously** via track IDs — no face recognition, no
 biometric identity. Cameras sit on an isolated VLAN; the API runs behind the
-platform gateway. **Retention is declared in config but not implemented** — no
-pruning job exists (see `docs/OCCUPANCY_ONLY_REMOVAL_PLAN.md`). History
+platform gateway. Retention is enforced by `app/services/retention.py` (config in
+`retention.*`; `0` = keep forever). History
 (`config.retention`).

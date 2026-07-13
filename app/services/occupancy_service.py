@@ -14,16 +14,32 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.api.schemas.metrics import (
+    FloorHistoryOut,
     FloorOccupancyOut,
+    FloorSeriesOut,
     FloorSpaceOccupancy,
-    HistorySeriesOut,
+    OccupancyBucket,
+    OccupancyHistoryOut,
     OccupancyOut,
+    OccupancySeriesOut,
     SpaceOccupancyOut,
-    TimeBucket,
 )
-from app.db.repositories.occupancy_repo import OccupancyRepository
+from app.db.repositories.occupancy_repo import Grain, OccupancyRepository, RollupRow
 from app.db.repositories.zone_repo import ZoneRepository
 from app.services.state_store import OccupancyState, StateStore
+
+
+def _to_bucket(row: RollupRow) -> OccupancyBucket:
+    """Map a stored rollup row onto its response DTO."""
+    return OccupancyBucket(
+        ts=row.bucket_ts,
+        avg=row.avg,
+        peak=row.peak,
+        min=row.min,
+        samples=row.samples,
+        cameras_healthy=row.cameras_healthy,
+        cameras_total=row.cameras_total,
+    )
 
 
 class OccupancyService:
@@ -176,29 +192,87 @@ class OccupancyService:
 
     def history(
         self,
-        zone_id: int,
+        grain: Grain,
         frm: datetime,
         to: datetime,
-        bucket_seconds: int,
-    ) -> HistorySeriesOut:
-        """Return bucketed mean-occupancy history for one zone over ``[frm, to)``.
+        space_ids: list[str] | None = None,
+        floors: list[str] | None = None,
+        limit: int | None = None,
+    ) -> OccupancyHistoryOut:
+        """Return pre-aggregated occupancy history, one series per space.
+
+        Reads the rollup table for ``grain`` directly — no raw scan, no re-bucketing.
 
         Args:
-            zone_id: The zone to query.
+            grain: The stored grain to read (hour is what the Digital Twin uses).
             frm: Inclusive start of the window (timezone-aware UTC).
             to: Exclusive end of the window (timezone-aware UTC).
-            bucket_seconds: Width of each aggregation bucket in seconds.
-
-        Returns:
-            A :class:`HistorySeriesOut` whose points are ``(bucket_start, avg)``.
+            space_ids: Restrict to these spaces; ``None`` means every space.
+            floors: Restrict to spaces on these floors; ``None`` means every floor.
+            limit: Hard cap on rows read.
         """
-        series = self._occupancy_repo.query_series(zone_id, frm, to, bucket_seconds)
-        points = [TimeBucket(ts=ts, value=value) for ts, value in series]
-        return HistorySeriesOut(
-            key=f"zone:{zone_id}",
-            bucket=f"{bucket_seconds}s",
-            points=points,
+        rows = self._occupancy_repo.query(grain, frm, to, space_ids, floors, limit)
+
+        series: dict[str, OccupancySeriesOut] = {}
+        for row in rows:
+            entry = series.get(row.space_id)
+            if entry is None:
+                entry = OccupancySeriesOut(space_id=row.space_id, floor=row.floor, points=[])
+                series[row.space_id] = entry
+            entry.points.append(_to_bucket(row))
+
+        return OccupancyHistoryOut(
+            bucket=grain.value,
+            start=frm,
+            end=to,
+            series=sorted(series.values(), key=lambda s: s.space_id),
         )
+
+    def history_by_floor(
+        self,
+        grain: Grain,
+        frm: datetime,
+        to: datetime,
+        floors: list[str] | None = None,
+        limit: int | None = None,
+    ) -> FloorHistoryOut:
+        """Return occupancy history aggregated to floors: a floor's spaces summed per bucket.
+
+        Spaces on a floor are disjoint physical areas, so a floor's occupancy is the sum
+        of its spaces' averages within each bucket, and its peak the sum of their peaks in
+        that same bucket. Buckets where only some spaces reported are summed from those
+        that did — ``cameras_healthy``/``cameras_total`` carry the coverage forward so a
+        partial floor is visible as partial.
+        """
+        rows = self._occupancy_repo.query(grain, frm, to, None, floors, limit)
+
+        by_floor: dict[str, dict[datetime, list[RollupRow]]] = {}
+        for row in rows:
+            if row.floor is None:
+                continue  # belongs to no floor
+            by_floor.setdefault(row.floor, {}).setdefault(row.bucket_ts, []).append(row)
+
+        floors_out: list[FloorSeriesOut] = []
+        for floor, buckets in sorted(by_floor.items()):
+            space_ids = sorted({r.space_id for rs in buckets.values() for r in rs})
+            points = [
+                OccupancyBucket(
+                    ts=bucket_ts,
+                    avg=sum(r.avg for r in members),
+                    peak=sum(r.peak for r in members),
+                    min=sum(r.min for r in members),
+                    # The thinnest-observed space bounds how well we saw the floor.
+                    samples=min(r.samples for r in members),
+                    cameras_healthy=sum(r.cameras_healthy for r in members),
+                    cameras_total=sum(r.cameras_total for r in members),
+                )
+                for bucket_ts, members in sorted(buckets.items())
+            ]
+            floors_out.append(
+                FloorSeriesOut(floor=floor, space_ids=space_ids, points=points)
+            )
+
+        return FloorHistoryOut(bucket=grain.value, start=frm, end=to, floors=floors_out)
 
     def _zone_ids_in_area(self, area_id: str) -> set[int]:
         """Return the ids of zones whose camera belongs to ``area_id``."""

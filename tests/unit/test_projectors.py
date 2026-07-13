@@ -5,6 +5,10 @@
 DB: events are enqueued, the worker drains them on ``stop()`` (which joins the
 queue), and the resulting rows are read back through a session.
 
+Occupancy history is deliberately absent here: it is no longer written by a projector.
+A change-driven event stream cannot yield a time-weighted average, so occupancy is
+sampled at a fixed rate instead — see ``tests/unit/test_occupancy_sampler.py``.
+
 The persistence worker writes through ``session_scope()``, which is bound to the
 same in-memory engine configured by the ``_isolated_environment`` fixture (a
 SQLite ``StaticPool`` shared across threads), so the worker thread and the test
@@ -17,7 +21,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.timeseries import CrossingEvent as CrossingRow
-from app.db.models.timeseries import OccupancySample
 from app.domain.models import CrossingDirection
 from app.events.events import (
     CameraHealth,
@@ -103,7 +106,7 @@ def test_persistence_projector_persists_crossing_event_row(
     camera = make_camera(session)
     line = make_line(session, camera.id, area_id="lobby")
 
-    projector = PersistenceProjector(persist_interval=0.0)
+    projector = PersistenceProjector()
     projector.start()
     projector.handle(
         CrossingEvent(
@@ -121,44 +124,3 @@ def test_persistence_projector_persists_crossing_event_row(
     assert rows[0].line_id == line.id
     assert rows[0].direction == CrossingDirection.OUT.value
     assert rows[0].track_ref == 42
-
-
-def test_persistence_projector_throttles_rapid_occupancy_samples_for_one_zone(
-    session: Session, make_camera, make_zone
-) -> None:
-    camera = make_camera(session)
-    zone = make_zone(session, camera.id)
-
-    # interval=5s: two updates 1s apart for the same zone must write at most one.
-    projector = PersistenceProjector(persist_interval=5.0)
-    projector.start()
-    projector.handle(OccupancyUpdate(ts=1000.0, zone_id=zone.id, camera_id=camera.id, count=2))
-    projector.handle(OccupancyUpdate(ts=1001.0, zone_id=zone.id, camera_id=camera.id, count=3))
-    projector.stop()
-
-    rows = session.scalars(
-        select(OccupancySample).where(OccupancySample.zone_id == zone.id)
-    ).all()
-    assert len(rows) == 1
-    assert rows[0].count == 2  # the first sample wins; the rapid second is dropped
-
-
-def test_persistence_projector_persists_occupancy_again_after_interval_elapses(
-    session: Session, make_camera, make_zone
-) -> None:
-    camera = make_camera(session)
-    zone = make_zone(session, camera.id)
-
-    projector = PersistenceProjector(persist_interval=5.0)
-    projector.start()
-    projector.handle(OccupancyUpdate(ts=1000.0, zone_id=zone.id, camera_id=camera.id, count=2))
-    # 6s later — past the throttle interval, so this one is persisted too.
-    projector.handle(OccupancyUpdate(ts=1006.0, zone_id=zone.id, camera_id=camera.id, count=5))
-    projector.stop()
-
-    rows = session.scalars(
-        select(OccupancySample)
-        .where(OccupancySample.zone_id == zone.id)
-        .order_by(OccupancySample.ts)
-    ).all()
-    assert [r.count for r in rows] == [2, 5]

@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.settings import get_settings
@@ -18,6 +18,24 @@ from app.db.base import Base
 
 _engine: Engine | None = None
 _session_factory: sessionmaker[Session] | None = None
+
+
+def _enforce_sqlite_foreign_keys(engine: Engine) -> None:
+    """Turn on SQLite's foreign-key enforcement, which is OFF by default.
+
+    Without this, ``ON DELETE CASCADE`` is decorative: deleting a zone leaves its
+    time-series rows behind, pointing at an id that no longer resolves. That is not
+    hypothetical — it is how 36,549 of the old ``occupancy_samples`` table's 47,215 rows
+    (77%) came to reference zones that had been redrawn out of existence.
+
+    The pragma is per-connection, so it must be set on every checkout, not once.
+    """
+
+    @event.listens_for(engine, "connect")
+    def _set_pragma(dbapi_connection, _record):  # noqa: ANN001, ANN202
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def _build_engine(url: str, echo: bool = False) -> Engine:
@@ -29,7 +47,10 @@ def _build_engine(url: str, echo: bool = False) -> Engine:
             from sqlalchemy.pool import StaticPool
 
             kwargs["poolclass"] = StaticPool
-    return create_engine(url, connect_args=connect_args, **kwargs)
+    engine = create_engine(url, connect_args=connect_args, **kwargs)
+    if url.startswith("sqlite"):
+        _enforce_sqlite_foreign_keys(engine)
+    return engine
 
 
 def get_engine() -> Engine:

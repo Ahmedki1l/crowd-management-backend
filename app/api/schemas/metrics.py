@@ -1,4 +1,4 @@
-"""Live-metric, history, alert, and heat-map response schemas (HLD 8.2-8.4)."""
+"""Live-metric and history response schemas (HLD 8.2-8.4)."""
 
 from __future__ import annotations
 
@@ -108,3 +108,58 @@ class HistorySeriesOut(BaseModel):
     key: str
     bucket: str
     points: list[TimeBucket]
+
+
+# --- Occupancy history (pre-aggregated rollups) -----------------------------
+class OccupancyBucket(BaseModel):
+    """One aggregated bucket of occupancy history.
+
+    ``avg`` is the mean occupancy over the bucket and ``peak`` the highest value seen in
+    it. Chart the average, but alarm on the peak: an hourly mean of 12 can contain a
+    90-person spike.
+    """
+
+    ts: datetime
+    avg: float
+    peak: int
+    min: int
+    # Samples that fed this bucket, at 1 Hz: 60 = a fully-covered minute, 3600 a full
+    # hour. A low value means frames were dropped or a camera was down, so the bucket is
+    # real but thinly observed.
+    samples: int
+    cameras_healthy: int
+    cameras_total: int
+
+
+class OccupancySeriesOut(BaseModel):
+    """Occupancy history for one logical space."""
+
+    space_id: str
+    floor: str | None = None
+    points: list[OccupancyBucket]
+
+
+class OccupancyHistoryOut(BaseModel):
+    """Bucketed occupancy history, one series per space."""
+
+    bucket: str
+    start: datetime
+    end: datetime
+    series: list[OccupancySeriesOut]
+
+
+class FloorSeriesOut(BaseModel):
+    """Occupancy history for one floor: its spaces summed per bucket."""
+
+    floor: str
+    space_ids: list[str]
+    points: list[OccupancyBucket]
+
+
+class FloorHistoryOut(BaseModel):
+    """Bucketed occupancy history aggregated to floors."""
+
+    bucket: str
+    start: datetime
+    end: datetime
+    floors: list[FloorSeriesOut]
