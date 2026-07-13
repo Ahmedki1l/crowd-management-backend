@@ -1,5 +1,30 @@
 # Occupancy-only removal plan
 
+## Status
+
+| Phase | State |
+| --- | --- |
+| 0 — Safety net (test the live path) | **Done** — `tests/integration/test_snapshot_occupancy.py` |
+| 1 — Digital Twin push, Re-ID export script, compose topology | **Done** |
+| Paired fixes — tracker build scope, `/engine/entry-exit` guard | **Done** |
+| 2 — Heat maps | **Done** — migration `0004` |
+| 3 — Safety alerts, waiting times, snapshot evidence | **Done** — migration `0005` |
+| 4 — Re-ID | **Not started** (optional; frees no memory — see below) |
+
+Net so far: **-3,300 LOC**, 46 → 39 endpoints, 10 → 6 tables, 233 tests green.
+
+**Action required:** the migrations are written but the live `camera_analytics.db` is
+untouched. The dev DB was bootstrapped by `create_all()` and has no `alembic_version`
+row, so it must be stamped before upgrading:
+
+```bash
+alembic stamp 0003_camera_imgsz
+alembic upgrade head
+```
+
+Verified on a copy of the live DB: 8.4 MB → 3.9 MB after `VACUUM`, with all 47,215
+occupancy samples and 1,633 crossing events intact.
+
 ## Why
 
 This backend was built for the five-metric Digital Twin module (occupancy, entry/exit,
