@@ -33,6 +33,12 @@ from app.services.state_store import reset_state_store
 from app.utils.clock import FakeClock
 from app.utils.security import encode_jwt
 
+# The genuine thread-launching methods, kept before the autouse fixture neuters them, so
+# the one test that exercises the real background loop can opt back in
+# (see tests/integration/test_history_writers_threaded.py).
+REAL_SAMPLER_START = OccupancySampler.start
+REAL_HISTORY_WORKER_START = HistoryWorker.start
+
 _TEST_DB_URL = "sqlite:///:memory:"
 _TEST_AUTH_SECRET = "test-secret"
 _CONFIG_PATH = "config/config.example.yaml"
