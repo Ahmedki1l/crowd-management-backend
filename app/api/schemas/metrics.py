@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
 class OccupancyOut(BaseModel):
@@ -78,25 +78,8 @@ class DailyEntryExitOut(BaseModel):
     net: int
 
 
-class WaitingOut(BaseModel):
-    zone_id: int
-    dt_space_id: str | None = None
-    current_waits: int
-    avg_dwell_s: float
-    ts: float
 
 
-class AlertOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    type: str
-    zone_id: int | None = None
-    camera_id: int | None = None
-    ts: datetime
-    detail: str
-    snapshot_url: str | None = None
-    status: str
 
 
 class StateOut(BaseModel):
@@ -104,8 +87,6 @@ class StateOut(BaseModel):
 
     occupancy: list[OccupancyOut] = []
     entry_exit: list[EntryExitOut] = []
-    waiting: list[WaitingOut] = []
-    alerts: list[AlertOut] = []
     ts: float
 
 
@@ -113,7 +94,6 @@ class StatsOut(BaseModel):
     cameras_total: int
     cameras_healthy: int
     zones_total: int
-    active_alerts: int
     total_occupancy: int
     ts: float
 

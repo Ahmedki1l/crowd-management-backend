@@ -5,9 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Backend for the **Digital Twin** Camera-Based Analytics module. It ingests live RTSP
-video, detects/tracks people, and derives five metrics — **occupancy, entry/exit, safety
-alerts, waiting times, heat maps** — exposed over REST + SSE. One pipeline powers all five;
-only the final calculator differs. See `README.md` for the product framing and the BRD/HLD
+video, detects/tracks people, and derives **occupancy** and **entry/exit** — exposed over
+REST + SSE. One pipeline powers both; only the final calculator differs. It was originally
+built for five metrics; safety alerts, waiting times and heat maps were removed when the
+scope narrowed (see `docs/OCCUPANCY_ONLY_REMOVAL_PLAN.md`). Entry/exit is retained but
+currently paused via `processing.entry_exit_enabled`. See `README.md` for the product framing and the BRD/HLD
 mapping; this file captures the architecture and conventions that span multiple files.
 
 ## Commands

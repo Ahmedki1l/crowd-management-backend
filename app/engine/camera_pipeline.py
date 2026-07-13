@@ -13,19 +13,16 @@ It owns:
 * the localisation collaborators (:class:`~app.localisation.zones.ZoneEvaluator`,
   :class:`~app.localisation.state_machine.ZonePresenceTracker`,
   :class:`~app.localisation.lines.LineCrossingDetector`);
-* the analytics calculators (occupancy, entry/exit, safety, waiting), each scoped
-  to the zones/lines that matter for its role.
+* the analytics calculators (occupancy, entry/exit), each scoped to the zones/lines
+  that matter for its role.
 
 The pipeline is a pure orchestrator: the calculators are side-effect-free and
-return events, and the pipeline publishes them. The one flow that *does* have a side
-effect — persisting an alert with its evidence snapshot, which needs the live frame —
-is owned here, at the point the event is produced, exactly as the
-analytics layer's contract requires. Everything else (occupancy/crossing/dwell
-persistence and the read-model projection) is handled by the bus projectors wired
-in :mod:`app.api.app`, so the pipeline only ever ``publish``-es those.
+return events, and the pipeline publishes them. Persistence and the read-model
+projection are handled by the bus projectors wired in :mod:`app.api.app`, so the
+pipeline only ever ``publish``-es.
 
-Heavy/optional dependencies (``cv2`` via the snapshot helper) are imported lazily
-inside the methods that need them, so this module imports cleanly on core deps.
+Heavy/optional dependencies are imported lazily inside the methods that need them,
+so this module imports cleanly on core deps.
 """
 
 from __future__ import annotations
@@ -40,10 +37,7 @@ import numpy as np
 
 from app.analytics.entry_exit import EntryExitCalculator
 from app.analytics.occupancy import OccupancyCalculator
-from app.analytics.safety import SafetyCalculator
-from app.analytics.waiting import WaitingCalculator
 from app.config.schema import AppConfig, SnapshotPullConfig
-from app.db.session import session_scope
 from app.domain.interfaces import Clock, Detector, EmbeddingExtractor, Tracker
 from app.domain.models import (
     CameraSpec,
@@ -54,7 +48,7 @@ from app.domain.models import (
 )
 from app.engine.round_timer import RoundTimer
 from app.events.event_bus import InMemoryEventBus
-from app.events.events import AlertRaised, CameraHealth
+from app.events.events import CameraHealth
 from app.inference.reid import ReIDManager
 from app.ingestion.capture import CaptureThread, RtspCaptureThread, SnapshotCaptureThread
 from app.ingestion.dataset_capture import DatasetWriter
@@ -64,7 +58,6 @@ from app.ingestion.stream_url import snapshot_url, sub_stream_url
 from app.localisation.lines import Crossing, LineCrossingDetector
 from app.localisation.state_machine import PresenceResult, ZonePresenceTracker
 from app.localisation.zones import ZoneEvaluator
-from app.services.alert_service import AlertService
 from app.services.state_store import CameraHealthState, StateStore, get_state_store
 from app.utils.logging import get_logger
 
@@ -187,8 +180,6 @@ class CameraPipeline:
         # Analytics calculators (built in start()).
         self._occupancy: OccupancyCalculator | None = None
         self._entry_exit: EntryExitCalculator | None = None
-        self._safety: SafetyCalculator | None = None
-        self._waiting: WaitingCalculator | None = None
 
         # Health heartbeat throttle (worker thread only — no lock needed).
         self._last_health_emit: float | None = None
@@ -341,7 +332,6 @@ class CameraPipeline:
         sm = self._cfg.state_machine
 
         occupancy_zones = [z for z in zones if z.type is ZoneType.OCCUPANCY]
-        waiting_zones = [z for z in zones if z.type is ZoneType.WAITING]
 
         self._zone_eval = ZoneEvaluator(zones)
         self._presence = ZonePresenceTracker(
@@ -362,14 +352,6 @@ class CameraPipeline:
 
         self._occupancy = OccupancyCalculator(self.camera_id, occupancy_zones, self._clock)
         self._entry_exit = EntryExitCalculator(lines, self._clock)
-        self._safety = SafetyCalculator(
-            self.camera_id,
-            zones,
-            self._clock,
-            sm.alert_debounce_frames,
-            sm.alert_cooldown_seconds,
-        )
-        self._waiting = WaitingCalculator(waiting_zones, self._clock)
 
     # ------------------------------------------------------------------ #
     # Worker loop
@@ -456,7 +438,6 @@ class CameraPipeline:
         counts = {zone_id: len(ids) for zone_id, ids in presence.confirmed.items()}
 
         self._publish_analytics(presence, crossings, ts)
-        self._handle_alerts(presence.confirmed, counts, ts, image)
 
     def _trace_frame(
         self,
@@ -519,86 +500,11 @@ class CameraPipeline:
         crossings: list[Crossing],
         ts: float,
     ) -> None:
-        """Run the non-alert calculators and publish their events."""
+        """Run the calculators and publish their events."""
         for event in self._occupancy.process(presence.confirmed, ts):  # type: ignore[union-attr]
             self._bus.publish(event)
         for event in self._entry_exit.process(crossings, ts):  # type: ignore[union-attr]
             self._bus.publish(event)
-        for event in self._waiting.process(presence.transitions, ts):  # type: ignore[union-attr]
-            self._bus.publish(event)
-
-    def _handle_alerts(
-        self,
-        confirmed: dict[int, set[int]],
-        counts: dict[int, int],
-        ts: float,
-        image: np.ndarray,
-    ) -> None:
-        """Evaluate safety alerts, persist each with a snapshot, then publish.
-
-        Each raised alert is enriched with a captured evidence snapshot and the
-        persisted alert id before it goes on the wire, so subscribers receive a
-        complete, addressable alert (HLD 7 / 13).
-        """
-        alerts = self._safety.process(confirmed, counts, ts)  # type: ignore[union-attr]
-        for alert in alerts:
-            self._bus.publish(self._persist_alert(alert, image, ts))
-
-    def _persist_alert(
-        self, alert: AlertRaised, image: np.ndarray, ts: float
-    ) -> AlertRaised:
-        """Save a snapshot, persist the alert, and return an enriched event.
-
-        On any persistence/encoding failure the original alert is still published
-        (without an id/snapshot) so the alert is never silently lost; the failure
-        is logged with its stack.
-        """
-        snapshot_url = self._capture_snapshot(image, ts)
-        try:
-            with session_scope() as session:
-                row = AlertService(session).raise_alert(alert, snapshot_url)
-                alert_id = row.id
-            return dataclasses.replace(
-                alert, alert_id=alert_id, snapshot_url=snapshot_url
-            )
-        except Exception:  # noqa: BLE001 - alert delivery must survive DB faults
-            # A storage failure must not drop the alert: log with the stack and
-            # publish the un-persisted alert so the condition still reaches
-            # subscribers. We do not invent an id.
-            logger.exception(
-                "failed to persist alert",
-                extra={
-                    "camera_id": self.camera_id,
-                    "zone_id": alert.zone_id,
-                    "event": "alert_persist_failed",
-                },
-            )
-            if snapshot_url is not None:
-                return dataclasses.replace(alert, snapshot_url=snapshot_url)
-            return alert
-
-    def _capture_snapshot(self, image: np.ndarray, ts: float) -> str | None:
-        """Write an evidence JPEG and return its relative path, or ``None``.
-
-        ``save_snapshot`` imports ``cv2`` lazily. A capture failure is logged and
-        swallowed (returning ``None``) so a missing snapshot never blocks the
-        alert itself from being raised.
-        """
-        from app.utils.snapshot import save_snapshot
-
-        try:
-            return save_snapshot(
-                image, self._cfg.snapshots.dir, self.camera_id, ts
-            )
-        except Exception:  # noqa: BLE001 - snapshot is best-effort evidence
-            logger.exception(
-                "failed to save alert snapshot",
-                extra={
-                    "camera_id": self.camera_id,
-                    "event": "snapshot_save_failed",
-                },
-            )
-            return None
 
     # ------------------------------------------------------------------ #
     # Health

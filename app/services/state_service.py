@@ -2,8 +2,8 @@
 
 When a Digital Twin / dashboard client first connects it needs the whole current
 world in one shot before it starts following the live event stream. This service
-assembles that snapshot by delegating to the per-metric query services (so the
-state->DTO mapping lives in exactly one place per metric) and the alert service.
+assembles that snapshot by delegating to the per-metric query services, so the
+state->DTO mapping lives in exactly one place per metric.
 """
 
 from __future__ import annotations
@@ -11,14 +11,10 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.api.schemas.metrics import StateOut
-from app.services.alert_service import AlertService
 from app.services.entryexit_service import EntryExitService
 from app.services.occupancy_service import OccupancyService
 from app.services.state_store import StateStore
-from app.services.waiting_service import WaitingService
 from app.utils.clock import system_clock
-
-ALERT_STATUS_ACTIVE = "active"
 
 
 class StateService:
@@ -33,20 +29,15 @@ class StateService:
         """
         self._occupancy = OccupancyService(session, store)
         self._entry_exit = EntryExitService(session, store)
-        self._waiting = WaitingService(session, store)
-        self._alerts = AlertService(session)
 
     def snapshot(self) -> StateOut:
-        """Return the full current state: occupancy, entry/exit, waiting, alerts.
+        """Return the full current state: occupancy and entry/exit.
 
         Returns:
-            A :class:`StateOut` carrying every live metric plus the currently
-            active alerts, stamped with the wall clock.
+            A :class:`StateOut` carrying every live metric, stamped with the wall clock.
         """
         return StateOut(
             occupancy=self._occupancy.current(),
             entry_exit=self._entry_exit.current(),
-            waiting=self._waiting.current(),
-            alerts=self._alerts.list_alerts(status=ALERT_STATUS_ACTIVE),
             ts=system_clock().now(),
         )

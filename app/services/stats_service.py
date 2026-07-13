@@ -12,7 +12,6 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.api.schemas.metrics import StatsOut
-from app.db.repositories.alert_repo import AlertRepository
 from app.db.repositories.camera_repo import CameraRepository
 from app.db.repositories.zone_repo import ZoneRepository
 from app.services.state_store import StateStore
@@ -35,14 +34,13 @@ class StatsService:
         self._store = store
         self._camera_repo = CameraRepository(session)
         self._zone_repo = ZoneRepository(session)
-        self._alert_repo = AlertRepository(session)
 
     def build(self) -> StatsOut:
         """Assemble the current dashboard summary.
 
         Returns:
             A :class:`StatsOut` combining DB-registered totals with live health,
-            occupancy, and active-alert counts, stamped with the wall clock.
+            occupancy counts, stamped with the wall clock.
         """
         cameras_total = len(self._camera_repo.list())
         zones_total = len(self._zone_repo.list())
@@ -50,13 +48,11 @@ class StatsService:
             1 for health in self._store.all_camera_health() if health.healthy
         )
         total_occupancy = self._store.total_occupancy()
-        active_alerts = len(self._alert_repo.list(status=ALERT_STATUS_ACTIVE))
 
         return StatsOut(
             cameras_total=cameras_total,
             cameras_healthy=cameras_healthy,
             zones_total=zones_total,
-            active_alerts=active_alerts,
             total_occupancy=total_occupancy,
             ts=system_clock().now(),
         )

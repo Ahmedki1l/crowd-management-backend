@@ -82,7 +82,7 @@ _ROI_HTML = """<!doctype html>
       <option value="line">line (entry/exit)</option></select>
     <label>Name</label><input id="zname" value="ROI">
     <label>Type (zone only)</label>
-    <select id="ztype"><option>occupancy</option><option>waiting</option><option>restricted</option></select>
+    <select id="ztype"><option>occupancy</option></select>
     <label>dt_space_id (zone space) &mdash; set per floor!</label>
     <input id="zspace" placeholder="e.g. b1-waiting-area / gf-waiting-area">
     <label>area_id (line entry/exit)</label>

@@ -42,15 +42,6 @@ class AreaCountState:
 
 
 @dataclass(slots=True)
-class WaitingState:
-    zone_id: int
-    current_waits: int
-    avg_dwell_s: float
-    dt_space_id: str | None
-    ts: float
-
-
-@dataclass(slots=True)
 class CameraHealthState:
     camera_id: int
     fps: float = 0.0
@@ -67,7 +58,6 @@ class StateStore:
         self._lock = threading.RLock()
         self._occupancy: dict[int, OccupancyState] = {}
         self._counts: dict[str, AreaCountState] = {}
-        self._waiting: dict[int, WaitingState] = {}
         self._health: dict[int, CameraHealthState] = {}
 
     # --- Occupancy ---------------------------------------------------------
@@ -109,22 +99,6 @@ class StateStore:
         with self._lock:
             return list(self._counts.values())
 
-    # --- Waiting -----------------------------------------------------------
-    def set_waiting(
-        self, zone_id: int, current_waits: int, avg_dwell_s: float, dt_space_id: str | None, ts: float
-    ) -> None:
-        with self._lock:
-            self._waiting[zone_id] = WaitingState(
-                zone_id, current_waits, avg_dwell_s, dt_space_id, ts
-            )
-
-    def get_waiting(self, zone_id: int) -> WaitingState | None:
-        with self._lock:
-            return self._waiting.get(zone_id)
-
-    def all_waiting(self) -> list[WaitingState]:
-        with self._lock:
-            return list(self._waiting.values())
 
     # --- Camera health -----------------------------------------------------
     def set_camera_health(self, health: CameraHealthState) -> None:
@@ -147,7 +121,6 @@ class StateStore:
         with self._lock:
             self._occupancy.clear()
             self._counts.clear()
-            self._waiting.clear()
             self._health.clear()
 
 

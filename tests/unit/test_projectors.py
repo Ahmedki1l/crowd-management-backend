@@ -13,26 +13,20 @@ session see the same database.
 
 from __future__ import annotations
 
-from datetime import UTC
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.timeseries import CrossingEvent as CrossingRow
-from app.db.models.timeseries import DwellSession as DwellRow
 from app.db.models.timeseries import OccupancySample
 from app.domain.models import CrossingDirection
 from app.events.events import (
     CameraHealth,
     CountUpdate,
     CrossingEvent,
-    DwellClosed,
     OccupancyUpdate,
-    WaitingUpdate,
 )
 from app.services.projectors import PersistenceProjector, StateProjector
 from app.services.state_store import StateStore
-from app.utils.timeutil import to_epoch
 
 
 # --------------------------------------------------------------------------- #
@@ -71,18 +65,6 @@ def test_state_projector_attributes_counts_to_triggering_line() -> None:
     assert state is not None
     assert state.lines[2].in_count == 9
     assert state.lines[2].out_count == 4
-
-
-def test_state_projector_records_waiting_in_store() -> None:
-    store = StateStore()
-    StateProjector(store).handle(
-        WaitingUpdate(ts=1000.0, zone_id=5, current_waits=3, avg_dwell_s=12.5, dt_space_id="q")
-    )
-
-    state = store.get_waiting(5)
-    assert state is not None
-    assert state.current_waits == 3
-    assert state.avg_dwell_s == 12.5
 
 
 def test_state_projector_records_camera_health_in_store() -> None:
@@ -139,59 +121,6 @@ def test_persistence_projector_persists_crossing_event_row(
     assert rows[0].line_id == line.id
     assert rows[0].direction == CrossingDirection.OUT.value
     assert rows[0].track_ref == 42
-
-
-def test_persistence_projector_persists_dwell_session_row(
-    session: Session, make_camera, make_zone
-) -> None:
-    camera = make_camera(session)
-    zone = make_zone(session, camera.id)
-
-    projector = PersistenceProjector(persist_interval=0.0)
-    projector.start()
-    projector.handle(
-        DwellClosed(
-            ts=1030.0,
-            zone_id=zone.id,
-            track_ref=7,
-            enter_ts=1000.0,
-            leave_ts=1030.0,
-            dwell_s=30.0,
-        )
-    )
-    projector.stop()
-
-    rows = session.scalars(select(DwellRow)).all()
-    assert len(rows) == 1
-    assert rows[0].zone_id == zone.id
-    assert rows[0].track_ref == 7
-    assert rows[0].dwell_s == 30.0
-
-
-def test_persistence_projector_persists_dwell_enter_and_leave_timestamps(
-    session: Session, make_camera, make_zone
-) -> None:
-    camera = make_camera(session)
-    zone = make_zone(session, camera.id)
-
-    projector = PersistenceProjector(persist_interval=0.0)
-    projector.start()
-    projector.handle(
-        DwellClosed(
-            ts=1030.0,
-            zone_id=zone.id,
-            track_ref=7,
-            enter_ts=1000.0,
-            leave_ts=1030.0,
-            dwell_s=30.0,
-        )
-    )
-    projector.stop()
-
-    row = session.scalars(select(DwellRow)).one()
-    # SQLite drops tzinfo on round-trip; the DB contract is UTC, so compare epochs.
-    assert to_epoch(row.enter_ts.replace(tzinfo=UTC)) == 1000.0
-    assert to_epoch(row.leave_ts.replace(tzinfo=UTC)) == 1030.0
 
 
 def test_persistence_projector_throttles_rapid_occupancy_samples_for_one_zone(

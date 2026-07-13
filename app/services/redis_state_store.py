@@ -7,7 +7,6 @@ is one Redis hash:
 
 * ``occupancy``      field = ``zone_id``   value = JSON of :class:`OccupancyState`
 * ``counts``         field = ``area_id``   value = JSON of :class:`AreaCountState`
-* ``waiting``        field = ``zone_id``   value = JSON of :class:`WaitingState`
 * ``camera_health``  field = ``camera_id`` value = JSON of :class:`CameraHealthState`
 
 The dataclasses from :mod:`app.services.state_store` are reused verbatim (never
@@ -26,7 +25,6 @@ from app.services.state_store import (
     CameraHealthState,
     LineCountState,
     OccupancyState,
-    WaitingState,
 )
 from app.utils.logging import get_logger
 
@@ -39,7 +37,6 @@ logger = get_logger("services.redis_state_store")
 _PREFIX = "camera-analytics:state"
 _OCCUPANCY_HASH = f"{_PREFIX}:occupancy"
 _COUNTS_HASH = f"{_PREFIX}:counts"
-_WAITING_HASH = f"{_PREFIX}:waiting"
 _HEALTH_HASH = f"{_PREFIX}:camera_health"
 
 
@@ -49,14 +46,6 @@ def _encode_occupancy(state: OccupancyState) -> str:
 
 def _decode_occupancy(raw: bytes | str) -> OccupancyState:
     return OccupancyState(**json.loads(raw))
-
-
-def _encode_waiting(state: WaitingState) -> str:
-    return json.dumps(dataclasses.asdict(state))
-
-
-def _decode_waiting(raw: bytes | str) -> WaitingState:
-    return WaitingState(**json.loads(raw))
 
 
 def _encode_health(state: CameraHealthState) -> str:
@@ -145,19 +134,6 @@ class RedisStateStore:
     def all_counts(self) -> list[AreaCountState]:
         return [_decode_counts(v) for v in self._get_client().hvals(_COUNTS_HASH)]
 
-    # --- Waiting -----------------------------------------------------------
-    def set_waiting(
-        self, zone_id: int, current_waits: int, avg_dwell_s: float, dt_space_id: str | None, ts: float
-    ) -> None:
-        state = WaitingState(zone_id, current_waits, avg_dwell_s, dt_space_id, ts)
-        self._get_client().hset(_WAITING_HASH, str(zone_id), _encode_waiting(state))
-
-    def get_waiting(self, zone_id: int) -> WaitingState | None:
-        raw = self._get_client().hget(_WAITING_HASH, str(zone_id))
-        return _decode_waiting(raw) if raw is not None else None
-
-    def all_waiting(self) -> list[WaitingState]:
-        return [_decode_waiting(v) for v in self._get_client().hvals(_WAITING_HASH)]
 
     # --- Camera health -----------------------------------------------------
     def set_camera_health(self, health: CameraHealthState) -> None:
@@ -175,5 +151,5 @@ class RedisStateStore:
 
     def clear(self) -> None:
         self._get_client().delete(
-            _OCCUPANCY_HASH, _COUNTS_HASH, _WAITING_HASH, _HEALTH_HASH
+            _OCCUPANCY_HASH, _COUNTS_HASH, _HEALTH_HASH
         )

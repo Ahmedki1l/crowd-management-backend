@@ -1,8 +1,7 @@
 """Historical time-series router (HLD 8.3).
 
-Serves bucketed history for the live metrics — occupancy and waiting keyed by
-``zone_id``, entry/exit keyed by ``area_id`` — plus per-zone alert history. The
-window bounds (``from``/``to``) accept epoch seconds or ISO-8601 and default to
+Serves bucketed history for the live metrics — occupancy keyed by ``zone_id``,
+entry/exit keyed by ``area_id``. The window bounds (``from``/``to``) accept epoch seconds or ISO-8601 and default to
 the last 24 hours; ``bucket`` accepts a duration (default ``1h``). All query and
 aggregation logic lives in the per-metric services; this router parses the window
 and bucket and binds them to those services.
@@ -17,12 +16,10 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuthDep, db_session, state_store
 from app.api.routers._timeparse import parse_bucket_seconds, parse_instant
-from app.api.schemas.metrics import AlertOut, DailyEntryExitOut, HistorySeriesOut
-from app.services.alert_service import AlertService
+from app.api.schemas.metrics import DailyEntryExitOut, HistorySeriesOut
 from app.services.entryexit_service import EntryExitService
 from app.services.occupancy_service import OccupancyService
 from app.services.state_store import StateStore
-from app.services.waiting_service import WaitingService
 
 router = APIRouter(tags=["history"], dependencies=[AuthDep])
 
@@ -168,49 +165,3 @@ def entry_exit_history(
     bucket_seconds = parse_bucket_seconds(bucket)
     service = EntryExitService(session, store)
     return service.history(area_id, window_start, window_end, bucket_seconds)
-
-
-@router.get("/history/waiting", response_model=HistorySeriesOut)
-def waiting_history(
-    zone_id: int,
-    frm: str | None = Query(default=None, alias="from"),
-    to: str | None = Query(default=None, alias="to"),
-    bucket: str = _DEFAULT_BUCKET,
-    session: Session = Depends(db_session),
-    store: StateStore = Depends(state_store),
-) -> HistorySeriesOut:
-    """Return bucketed average-dwell history for one zone.
-
-    Args:
-        zone_id: The zone to query.
-        frm: Inclusive window start (epoch seconds or ISO-8601); aliased ``from``.
-        to: Exclusive window end (epoch seconds or ISO-8601).
-        bucket: Aggregation bucket width (e.g. ``"15m"``, ``"1h"``).
-        session: Injected DB session owning the history query.
-        store: Injected live-state cache (required by the service constructor).
-
-    Returns:
-        A :class:`HistorySeriesOut` of ``(bucket_start, avg_dwell_s)`` points.
-    """
-    window_start, window_end = _resolve_window(frm, to)
-    bucket_seconds = parse_bucket_seconds(bucket)
-    service = WaitingService(session, store)
-    return service.history(zone_id, window_start, window_end, bucket_seconds)
-
-
-@router.get("/history/alerts", response_model=list[AlertOut])
-def alert_history(
-    zone_id: int,
-    session: Session = Depends(db_session),
-) -> list[AlertOut]:
-    """Return every alert for ``zone_id``, newest first.
-
-    Args:
-        zone_id: The zone whose alert history to return.
-        session: Injected DB session owning the read transaction.
-
-    Returns:
-        The zone's alerts as response DTOs.
-    """
-    service = AlertService(session)
-    return service.history(zone_id)

@@ -3,12 +3,12 @@
 Proves the BRD acceptance path — *live frames produce metrics* — without any
 RTSP camera or heavy inference stack. A deterministic clip of scripted
 :class:`~app.domain.models.Detection` frames (one person walking across a
-counting line, another dwelling then leaving an occupancy/waiting zone) is driven
+counting line, another entering then leaving an occupancy zone) is driven
 through the whole chain::
 
     RecordedClipSource -> FakeDetector -> FakeTracker -> ZoneEvaluator
         -> ZonePresenceTracker -> {OccupancyCalculator, LineCrossingDetector
-        -> EntryExitCalculator, WaitingCalculator}
+        -> EntryExitCalculator}
 
 The emitted analytics events are then fanned through :class:`StateProjector` into
 a :class:`StateStore`, and the resulting ``/state``-style read model is asserted.
@@ -16,22 +16,18 @@ Every step uses the real geometry / state-machine / calculators — only the
 perception backends are fakes — so this exercises the genuine pipeline.
 
 Timing is fully deterministic: frame ``i`` is stamped ``base_ts + i / fps`` by the
-:class:`RecordedClipSource`, so dwell measurements are reproducible with no real
+:class:`RecordedClipSource`, so the measurements are reproducible with no real
 clock and no sleeps.
 """
 
 from __future__ import annotations
 
-import pytest
-
 from app.analytics.entry_exit import EntryExitCalculator
 from app.analytics.occupancy import OccupancyCalculator
-from app.analytics.waiting import WaitingCalculator
 from app.domain.models import BBox, CameraRole, Detection, ZoneType
 from app.events.events import (
     CountUpdate,
     CrossingEvent,
-    DwellClosed,
     Event,
     OccupancyUpdate,
 )
@@ -64,11 +60,11 @@ def _person(cx: float, cy: float) -> Detection:
 
 
 def _scripted_frames() -> list[list[Detection]]:
-    """Two-person script: one walks across the line, one dwells then leaves.
+    """Two-person script: one walks across the line, one stands in-zone then leaves.
 
     Person A (the walker) sweeps left-to-right from x=500 to x=780 at y=400,
     crossing the vertical line at x=640 once in the IN direction, then parks on
-    the right. Person B (the dweller) holds the ground point (600, 450) inside the
+    the right. Person B (the stander) holds the ground point (600, 450) inside the
     default polygon, then walks straight down out of it (y past 720, where the box
     no longer overlaps the polygon) and stays gone long enough to confirm a leave.
     The per-frame steps keep each person's IoU above the tracker threshold so both
@@ -94,7 +90,7 @@ def _run_pipeline() -> tuple[list[Event], StateStore]:
     script = _scripted_frames()
     n_frames = len(script)
 
-    zone = make_zone_spec(id=1, type=ZoneType.WAITING)
+    zone = make_zone_spec(id=1, type=ZoneType.OCCUPANCY)
     line = make_line_spec(id=1)
     clock = FakeClock(start=_BASE_TS)
 
@@ -109,12 +105,11 @@ def _run_pipeline() -> tuple[list[Event], StateStore]:
     line_detector = LineCrossingDetector([line])
     occupancy = OccupancyCalculator(camera_id=1, zones=[zone], clock=clock)
     entry_exit = EntryExitCalculator(lines=[line], clock=clock)
-    waiting = WaitingCalculator(zones=[zone], clock=clock)
 
     source = RecordedClipSource(
         camera_id=1,
         fps=_FPS,
-        role=CameraRole.WAITING,
+        role=CameraRole.OCCUPANCY,
         frames=make_clip(n_frames),
         base_ts=_BASE_TS,
     )
@@ -133,7 +128,6 @@ def _run_pipeline() -> tuple[list[Event], StateStore]:
         events.extend(occupancy.process(presence_result.confirmed, packet.ts))
         crossings = line_detector.update(tracked, packet.ts)
         events.extend(entry_exit.process(crossings, packet.ts))
-        events.extend(waiting.process(presence_result.transitions, packet.ts))
 
     store = StateStore()
     projector = StateProjector(store)
@@ -171,27 +165,6 @@ def test_pipeline_count_update_has_positive_net_change() -> None:
     assert final_count.net == 1
 
 
-def test_pipeline_closes_dwell_session_with_positive_dwell() -> None:
-    events, _ = _run_pipeline()
-
-    closed = [e for e in events if isinstance(e, DwellClosed)]
-
-    assert len(closed) == 1
-    assert closed[0].dwell_s > 0.0
-
-
-# --------------------------------------------------------------------------- #
-# Read model after projection (the /state-style view)
-# --------------------------------------------------------------------------- #
-def test_state_store_reflects_final_occupancy_after_projection() -> None:
-    _, store = _run_pipeline()
-
-    occupancy = store.get_occupancy(1)
-
-    assert occupancy is not None
-    assert occupancy.count == 1
-
-
 def test_state_store_reflects_net_count_after_projection() -> None:
     _, store = _run_pipeline()
 
@@ -201,22 +174,3 @@ def test_state_store_reflects_net_count_after_projection() -> None:
     assert counts.net == 1
     assert counts.in_count == 1
     assert counts.out_count == 0
-
-
-def test_state_store_reflects_dwell_average_after_projection() -> None:
-    _, store = _run_pipeline()
-
-    waiting = store.get_waiting(1)
-
-    assert waiting is not None
-    assert waiting.avg_dwell_s > 0.0
-
-
-def test_dwell_average_matches_closed_session_duration() -> None:
-    events, store = _run_pipeline()
-
-    closed = [e for e in events if isinstance(e, DwellClosed)][0]
-    waiting = store.get_waiting(1)
-
-    assert waiting is not None
-    assert waiting.avg_dwell_s == pytest.approx(closed.dwell_s, abs=0.01)

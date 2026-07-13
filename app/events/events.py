@@ -12,16 +12,13 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol, runtime_checkable
 
-from app.domain.models import AlertType, CrossingDirection
+from app.domain.models import CrossingDirection
 
 
 class EventType(str, Enum):
     OCCUPANCY_UPDATE = "occupancy_update"
     COUNT_UPDATE = "count_update"
-    WAITING_UPDATE = "waiting_update"
-    ALERT = "alert"
     CROSSING = "crossing"
-    DWELL_CLOSED = "dwell_closed"
     CAMERA_HEALTH = "camera_health"
 
 
@@ -120,80 +117,6 @@ class CountUpdate(Event):
             "out": self.out_count,
             "net": self.net,
             "line_id": self.line_id,
-            "dt_space_id": self.dt_space_id,
-        }
-
-
-@dataclass(frozen=True)
-class WaitingUpdate(Event):
-    zone_id: int = 0
-    current_waits: int = 0
-    avg_dwell_s: float = 0.0
-    dt_space_id: str | None = None
-    type: EventType = field(default=EventType.WAITING_UPDATE, init=False)
-
-    @property
-    def topic(self) -> str:
-        return f"zone:{self.zone_id}"
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            **super().payload(),
-            "zone_id": self.zone_id,
-            "current_waits": self.current_waits,
-            "avg_dwell_s": round(self.avg_dwell_s, 2),
-            "dt_space_id": self.dt_space_id,
-        }
-
-
-@dataclass(frozen=True)
-class DwellClosed(Event):
-    zone_id: int = 0
-    track_ref: int = 0
-    enter_ts: float = 0.0
-    leave_ts: float = 0.0
-    dwell_s: float = 0.0
-    type: EventType = field(default=EventType.DWELL_CLOSED, init=False)
-
-    @property
-    def topic(self) -> str:
-        return f"zone:{self.zone_id}"
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            **super().payload(),
-            "zone_id": self.zone_id,
-            "track_ref": self.track_ref,
-            "enter_ts": self.enter_ts,
-            "leave_ts": self.leave_ts,
-            "dwell_s": round(self.dwell_s, 2),
-        }
-
-
-@dataclass(frozen=True)
-class AlertRaised(Event):
-    alert_type: AlertType = AlertType.INTRUSION
-    zone_id: int = 0
-    camera_id: int = 0
-    detail: str = ""
-    snapshot_url: str | None = None
-    dt_space_id: str | None = None
-    alert_id: int | None = None
-    type: EventType = field(default=EventType.ALERT, init=False)
-
-    @property
-    def topic(self) -> str:
-        return f"zone:{self.zone_id}"
-
-    def payload(self) -> dict[str, Any]:
-        return {
-            **super().payload(),
-            "alert_id": self.alert_id,
-            "alert_type": self.alert_type.value,
-            "zone_id": self.zone_id,
-            "camera_id": self.camera_id,
-            "detail": self.detail,
-            "snapshot_url": self.snapshot_url,
             "dt_space_id": self.dt_space_id,
         }
 

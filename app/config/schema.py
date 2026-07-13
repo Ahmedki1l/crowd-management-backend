@@ -29,7 +29,6 @@ class ApiConfig(BaseModel):
 
 class FpsTiers(BaseModel):
     entry_exit: float = 8
-    waiting: float = 6
     occupancy: float = 2
 
     def for_role(self, role: str) -> float:
@@ -131,12 +130,6 @@ class TrackerConfig(BaseModel):
 class StateMachineConfig(BaseModel):
     confirm_enter_frames: int = 5
     confirm_leave_frames: int = 8
-    alert_debounce_frames: int = 5
-    alert_cooldown_seconds: float = 30
-
-
-class SnapshotsConfig(BaseModel):
-    dir: str = "data/snapshots"
 
 
 class DatasetCaptureConfig(BaseModel):
@@ -155,9 +148,6 @@ class DatasetCaptureConfig(BaseModel):
 class RetentionConfig(BaseModel):
     occupancy_days: int = 90
     crossing_days: int = 90
-    dwell_days: int = 90
-    alert_days: int = 365
-    snapshot_days: int = 30
 
 
 class AppConfig(BaseModel):
@@ -170,6 +160,5 @@ class AppConfig(BaseModel):
     detector: DetectorConfig = Field(default_factory=DetectorConfig)
     tracker: TrackerConfig = Field(default_factory=TrackerConfig)
     state_machine: StateMachineConfig = Field(default_factory=StateMachineConfig)
-    snapshots: SnapshotsConfig = Field(default_factory=SnapshotsConfig)
     dataset_capture: DatasetCaptureConfig = Field(default_factory=DatasetCaptureConfig)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)

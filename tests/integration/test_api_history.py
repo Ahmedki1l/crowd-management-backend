@@ -1,10 +1,10 @@
 """Integration tests for the historical time-series router (HLD 8.3).
 
-Raw time-series rows (occupancy samples, crossing events, dwell sessions, and
-alerts) are inserted directly through their repositories, then the matching
-``/api/v1/history/*`` endpoints are queried with an explicit ``from``/``to``
-window and ``bucket`` width. Assertions cover the bucketed aggregation each
-endpoint performs: mean occupancy, net crossings, and average dwell.
+Raw time-series rows (occupancy samples, crossing events) are inserted directly
+through their repositories, then the matching ``/api/v1/history/*`` endpoints are
+queried with an explicit ``from``/``to`` window and ``bucket`` width. Assertions
+cover the bucketed aggregation each endpoint performs: mean occupancy and net
+crossings.
 """
 
 from __future__ import annotations
@@ -14,9 +14,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.db.repositories.alert_repo import AlertRepository
 from app.db.repositories.crossing_repo import CrossingRepository
-from app.db.repositories.dwell_repo import DwellRepository
 from app.db.repositories.occupancy_repo import OccupancyRepository
 
 # A clean hour boundary so 10:00/10:30 share one 1h bucket and 11:00 starts the next.
@@ -164,55 +162,3 @@ def test_entry_exit_daily_rejects_malformed_date(
     )
 
     assert response.status_code == 422
-
-
-def test_waiting_history_returns_average_dwell_per_bucket(
-    client: TestClient, auth_headers: dict[str, str], session: Session
-) -> None:
-    repo = DwellRepository(session)
-    repo.add_closed(
-        zone_id=1, track_ref=1, enter_ts=_at(9, 50), leave_ts=_at(10, 0), dwell_s=30.0
-    )
-    repo.add_closed(
-        zone_id=1, track_ref=2, enter_ts=_at(10, 10), leave_ts=_at(10, 30), dwell_s=50.0
-    )
-    session.commit()
-
-    response = client.get(
-        "/api/v1/history/waiting",
-        params={"zone_id": 1, **_WINDOW},
-        headers=auth_headers,
-    )
-
-    assert response.status_code == 200
-    assert [p["value"] for p in response.json()["points"]] == [40.0]
-
-
-def test_alert_history_returns_zone_alerts(
-    client: TestClient, auth_headers: dict[str, str], session: Session
-) -> None:
-    repo = AlertRepository(session)
-    repo.create(
-        type="intrusion",
-        zone_id=1,
-        camera_id=None,
-        ts=_at(10, 0),
-        detail="intruder",
-        snapshot_url=None,
-    )
-    repo.create(
-        type="overcrowding",
-        zone_id=2,
-        camera_id=None,
-        ts=_at(10, 5),
-        detail="too many",
-        snapshot_url=None,
-    )
-    session.commit()
-
-    response = client.get(
-        "/api/v1/history/alerts", params={"zone_id": 1}, headers=auth_headers
-    )
-
-    assert response.status_code == 200
-    assert [a["zone_id"] for a in response.json()] == [1]

@@ -49,8 +49,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Camera-Based Analytics Service",
         version="1.0.0",
-        description="Backend analytics for the Digital Twin (occupancy, entry/exit, "
-        "safety, waiting, heat maps).",
+        description="Backend analytics for the Digital Twin (occupancy, entry/exit).",
         lifespan=lifespan,
     )
     app.add_middleware(

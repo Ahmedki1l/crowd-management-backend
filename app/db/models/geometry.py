@@ -16,7 +16,7 @@ class Zone(Base, TimestampMixin):
         ForeignKey("cameras.id", ondelete="CASCADE"), index=True
     )
     name: Mapped[str] = mapped_column(String(128))
-    type: Mapped[str] = mapped_column(String(32))  # occupancy | waiting | restricted
+    type: Mapped[str] = mapped_column(String(32))  # occupancy
     polygon: Mapped[list[list[float]]] = mapped_column(JSON)  # [[x,y], ...]
     safe_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dt_space_id: Mapped[str | None] = mapped_column(String(128), nullable=True)

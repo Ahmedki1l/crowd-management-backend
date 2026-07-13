@@ -2,9 +2,13 @@
 
 Backend for the **Digital Twin** Camera-Based Analytics module. It ingests live
 RTSP video from existing IP cameras, detects and tracks people, and derives five
-operational metrics — **occupancy, entry/exit, safety alerts, waiting times, and
-heat maps** — exposing them over a REST API and a real-time stream for the
-Digital Twin to visualise.
+operational metrics — **occupancy** and **entry/exit** — exposing them over a REST
+API and a real-time stream for the Digital Twin to visualise.
+
+> Originally built for five metrics. Safety alerts, waiting times and heat maps were
+> removed once the delivered scope narrowed to occupancy; entry/exit is retained but
+> currently paused via `processing.entry_exit_enabled`. See
+> `docs/OCCUPANCY_ONLY_REMOVAL_PLAN.md`.
 
 > Implements the *Camera-Based Analytics — Backend HLD v1.0* against the
 > *Camera-Based Analytics — BRD v1.0*. Backend only; the DT 3D front-end,
@@ -14,7 +18,7 @@ Digital Twin to visualise.
 
 ## How it works
 
-One pipeline powers all five use cases; only the final calculation differs:
+One pipeline powers both use cases; only the final calculation differs:
 
 ```
 Ingest ─▶ Detect ─▶ Track ─▶ Localise ─▶ Compute ─▶ Publish
@@ -31,9 +35,6 @@ never affects another.
 |---|---|---|
 | Occupancy | FR-OCC-01/02 | Count distinct live tracks whose bottom-center is inside each zone; debounced by a state machine |
 | Entry / Exit | FR-EE-01/02/03 | Line crossings set IN/OUT; net = IN − OUT per area |
-| Safety alerts | FR-SAF-01/02/03 | Restricted-zone intrusion + overcrowding rules, debounced with cooldown, with snapshot evidence |
-| Waiting times | FR-WAIT-01/02/03 | Dwell sessions opened/closed on confirmed enter/leave; current + rolling average |
-| Heat maps | FR-HM-01/02/03 | Bottom-center points accumulated into a per-camera image grid; aggregated over a time range |
 
 ---
 
@@ -44,9 +45,9 @@ never affects another.
 | 1 · Ingestion | `app/ingestion` | RTSP capture, decode, sample, reconnect; bounded drop-oldest queue |
 | 2 · Inference | `app/inference` | Person detection (YOLO, OpenVINO/TensorRT) + tracking (ByteTrack) + optional OSNet Re-ID |
 | 3 · Localisation | `app/localisation` | Image-space geometry (point-in-polygon, line crossing) + debounced presence state machine |
-| 4 · Analytics | `app/analytics` | The five calculators (pure: consume tracked detections, emit events) |
-| 5 · State & storage | `app/services/state_store`, `app/db`, `app/events` | Current-state read model, time-series DB, snapshots, event bus |
-| 6 · API & publish | `app/api`, `app/publish` | REST + SSE, outbound Digital Twin push |
+| 4 · Analytics | `app/analytics` | The calculators (pure: consume tracked detections, emit events) |
+| 5 · State & storage | `app/services/state_store`, `app/db`, `app/events` | Current-state read model, time-series DB, event bus |
+| 6 · API & publish | `app/api`, `app/publish` | REST + SSE |
 
 Shared contracts live in `app/domain` (value objects + interfaces), `app/events`
 (event schema + bus), and `app/config` (typed settings). **Calculators never
@@ -125,9 +126,9 @@ collapse to one identity.
 ## API surface (`/api/v1`, JWT/API-key auth on all routes)
 
 - **Config** — `/cameras`, `/cameras/{id}/test`, `/zones`, `/lines`, `/config`
-- **Live metrics** — `/state`, `/occupancy`, `/entry-exit`, `/waiting`, `/alerts`, `/stats`
-- **History** — `/history/{occupancy,entry-exit,waiting,alerts}`
-- **Realtime & ops** — `/stream` (SSE), `/snapshots/{path}`, `/alerts/{id}/ack`, `/cameras/{id}/health`, `/health`, `/ready`, `/metrics`
+- **Live metrics** — `/state`, `/occupancy`, `/occupancy/{spaces,floors}`, `/entry-exit`, `/stats`
+- **History** — `/history/{occupancy,entry-exit,entry-exit/daily}`
+- **Realtime & ops** — `/stream` (SSE), `/engine/*`, `/tools/*`, `/cameras/{id}/health`, `/health`, `/ready`, `/metrics`
 
 > **Camera credentials are write-only.** Passwords are accepted on POST/PATCH
 > over TLS, stored **encrypted** (AES-256-GCM via `CAMERA_CREDENTIALS_KEY`,
@@ -142,8 +143,7 @@ Runtime behaviour is driven by `config/config.example.yaml` (per-environment),
 with secrets via environment variables (see `.env.example`). **Cameras, zones,
 and lines are managed through the API and stored in the database** — never in the
 YAML. The primary accuracy/cost lever is the per-role **frame-rate tier**
-(`processing.fps_tiers`): entrances/queues at 5–10 fps, occupancy/heat-maps at
-1–2 fps.
+(`processing.fps_tiers`): entrances at 5–10 fps, occupancy at 1–2 fps.
 
 ---
 
@@ -156,14 +156,14 @@ app/
   ingestion/     RTSP capture, bounded queue, stream URLs
   inference/     detector, tracker, Re-ID, fakes, factory
   localisation/  geometry, zones, lines, state machine
-  analytics/     occupancy, entry_exit, safety, waiting
+  analytics/     occupancy, entry_exit
   engine/        per-camera pipeline + multi-camera lifecycle
   events/        event schema + in-process & Redis buses + serialization
-  publish/       Digital Twin push + SSE fan-out
+  publish/       SSE fan-out
   api/           FastAPI app, routers, schemas, deps
   db/            ORM models, session, repositories
   services/      business logic (state store, projectors, per-use-case services)
-  utils/         clock, logging, security, snapshots, time
+  utils/         clock, logging, security, time
 config/ models/ scripts/ migrations/ tests/
 ```
 
@@ -179,12 +179,14 @@ Tests run on the lightweight core (numpy, shapely, fastapi, sqlalchemy, fakeredi
 using a `FakeDetector`/`FakeTracker`, a recorded-clip source, and a `FakeClock` —
 no cameras, GPU, model artifacts, or Redis server required. The real
 `CameraPipeline` is driven end-to-end over a recorded clip via the
-`capture_factory` injection seam. Two heat-map overlay tests skip unless Pillow is
+`capture_factory` injection seam. The snapshot-pull occupancy path — the one
+production runs — is covered by `test_snapshot_occupancy.py`. Pillow is
 installed (`requires_inference`).
 
 ## Security & privacy
 
 People are tracked **anonymously** via track IDs — no face recognition, no
 biometric identity. Cameras sit on an isolated VLAN; the API runs behind the
-platform gateway. A retention policy governs history and snapshots
+platform gateway. **Retention is declared in config but not implemented** — no
+pruning job exists (see `docs/OCCUPANCY_ONLY_REMOVAL_PLAN.md`). History
 (`config.retention`).

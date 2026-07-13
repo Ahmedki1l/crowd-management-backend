@@ -66,16 +66,6 @@ def test_set_counts_with_lines_records_per_line_breakdown(store: RedisStateStore
     assert state.lines[7].out_count == 4
 
 
-def test_set_get_waiting_roundtrip(store: RedisStateStore) -> None:
-    store.set_waiting(
-        zone_id=9, current_waits=2, avg_dwell_s=12.5, dt_space_id="space-b", ts=1000.0
-    )
-
-    state = store.get_waiting(9)
-
-    assert state is not None
-    assert (state.current_waits, state.avg_dwell_s, state.dt_space_id) == (2, 12.5, "space-b")
-
 
 def test_set_get_camera_health_roundtrip(store: RedisStateStore) -> None:
     store.set_camera_health(
@@ -100,14 +90,12 @@ def test_total_occupancy_sums_zone_counts(store: RedisStateStore) -> None:
 def test_clear_resets_all_maps(store: RedisStateStore) -> None:
     store.set_occupancy(zone_id=1, count=3, dt_space_id=None, ts=1000.0)
     store.set_counts(area_id="a", in_count=1, out_count=0, net=1, ts=1000.0)
-    store.set_waiting(zone_id=1, current_waits=1, avg_dwell_s=1.0, dt_space_id=None, ts=1000.0)
     store.set_camera_health(CameraHealthState(camera_id=1, ts=1000.0))
 
     store.clear()
 
     assert store.all_occupancy() == []
     assert store.all_counts() == []
-    assert store.all_waiting() == []
     assert store.all_camera_health() == []
     assert store.total_occupancy() == 0
 

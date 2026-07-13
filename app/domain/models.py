@@ -26,14 +26,11 @@ class CameraRole(str, Enum):
     """Drives the per-camera frame-rate tier (HLD 5.1)."""
 
     ENTRY_EXIT = "entry_exit"
-    WAITING = "waiting"
     OCCUPANCY = "occupancy"
 
 
 class ZoneType(str, Enum):
     OCCUPANCY = "occupancy"
-    WAITING = "waiting"
-    RESTRICTED = "restricted"
 
 
 class CrossingDirection(str, Enum):
@@ -48,11 +45,6 @@ class ZoneState(str, Enum):
     ENTERING = "entering"
     OCCUPIED = "occupied"
     LEAVING = "leaving"
-
-
-class AlertType(str, Enum):
-    INTRUSION = "intrusion"
-    OVERCROWDING = "overcrowding"
 
 
 # --------------------------------------------------------------------------- #
@@ -188,7 +180,6 @@ class CameraSpec:
         """The most motion-sensitive role decides the camera's fps tier."""
         priority = [
             CameraRole.ENTRY_EXIT,
-            CameraRole.WAITING,
             CameraRole.OCCUPANCY,
         ]
         for role in priority:

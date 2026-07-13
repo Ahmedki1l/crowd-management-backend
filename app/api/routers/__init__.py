@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.routers.alerts import router as alerts_router
 from app.api.routers.cameras import router as cameras_router
 from app.api.routers.config import router as config_router
 from app.api.routers.engine import router as engine_router
@@ -23,11 +22,9 @@ from app.api.routers.health import router as health_router
 from app.api.routers.history import router as history_router
 from app.api.routers.lines import router as lines_router
 from app.api.routers.occupancy import router as occupancy_router
-from app.api.routers.snapshots import router as snapshots_router
 from app.api.routers.state import router as state_router
 from app.api.routers.stream import router as stream_router
 from app.api.routers.tools import router as tools_router
-from app.api.routers.waiting import router as waiting_router
 from app.api.routers.zones import router as zones_router
 
 all_routers: list[APIRouter] = [
@@ -37,12 +34,9 @@ all_routers: list[APIRouter] = [
     config_router,
     occupancy_router,
     entry_exit_router,
-    waiting_router,
-    alerts_router,
     state_router,
     history_router,
     stream_router,
-    snapshots_router,
     tools_router,
     engine_router,
     health_router,

@@ -1,7 +1,7 @@
 """Consolidated state and dashboard-stats router (HLD 8.2).
 
-``GET /state`` returns the full current world (occupancy, entry/exit, waiting,
-active alerts) a Digital Twin client loads before following the live event stream.
+``GET /state`` returns the full current world (occupancy, entry/exit) a Digital Twin
+client loads before following the live event stream.
 ``GET /stats`` returns the operator dashboard summary tile. Assembly logic lives
 in :class:`~app.services.state_service.StateService` and
 :class:`~app.services.stats_service.StatsService`; this router only binds the

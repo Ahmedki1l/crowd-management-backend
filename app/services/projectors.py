@@ -24,20 +24,16 @@ from __future__ import annotations
 
 import queue
 import threading
-from datetime import datetime
 
 from app.db.repositories.crossing_repo import CrossingRepository
-from app.db.repositories.dwell_repo import DwellRepository
 from app.db.repositories.occupancy_repo import OccupancyRepository
 from app.db.session import session_scope
 from app.events.events import (
     CameraHealth,
     CountUpdate,
     CrossingEvent,
-    DwellClosed,
     Event,
     OccupancyUpdate,
-    WaitingUpdate,
 )
 from app.services.state_store import CameraHealthState, StateStore
 from app.utils.logging import get_logger
@@ -72,7 +68,7 @@ class StateProjector:
 
         Args:
             event: An analytics event from the bus. Types this projector does not
-                project (alerts, crossings, dwell) are ignored.
+                project (crossings) are ignored.
         """
         if isinstance(event, OccupancyUpdate):
             self._store.set_occupancy(
@@ -86,14 +82,6 @@ class StateProjector:
                 net=event.net,
                 ts=event.ts,
                 lines=self._lines_from_count(event),
-            )
-        elif isinstance(event, WaitingUpdate):
-            self._store.set_waiting(
-                event.zone_id,
-                event.current_waits,
-                event.avg_dwell_s,
-                event.dt_space_id,
-                event.ts,
             )
         elif isinstance(event, CameraHealth):
             self._store.set_camera_health(
@@ -186,14 +174,14 @@ class PersistenceProjector:
     def handle(self, event: Event) -> None:
         """Enqueue an event for durable storage without blocking.
 
-        Only event types this projector persists (occupancy samples, crossings,
-        closed dwells) are queued; others are dropped here so the worker never
-        wakes for work it would ignore.
+        Only event types this projector persists (occupancy samples, crossings) are
+        queued; others are dropped here so the worker never wakes for work it would
+        ignore.
 
         Args:
             event: The analytics event to persist asynchronously.
         """
-        if isinstance(event, (OccupancyUpdate, CrossingEvent, DwellClosed)):
+        if isinstance(event, (OccupancyUpdate, CrossingEvent)):
             self._queue.put_nowait(event)
 
     # ------------------------------------------------------------------ #
@@ -226,8 +214,6 @@ class PersistenceProjector:
             self._persist_occupancy(event)
         elif isinstance(event, CrossingEvent):
             self._persist_crossing(event)
-        elif isinstance(event, DwellClosed):
-            self._persist_dwell(event)
 
     def _persist_occupancy(self, event: OccupancyUpdate) -> None:
         """Append an occupancy sample, throttled to one per zone per interval."""
@@ -252,18 +238,6 @@ class PersistenceProjector:
                 track_ref=event.track_ref,
             )
 
-    def _persist_dwell(self, event: DwellClosed) -> None:
-        """Persist one completed dwell session."""
-        enter_ts: datetime = to_datetime(event.enter_ts)
-        leave_ts: datetime = to_datetime(event.leave_ts)
-        with session_scope() as session:
-            DwellRepository(session).add_closed(
-                zone_id=event.zone_id,
-                track_ref=event.track_ref,
-                enter_ts=enter_ts,
-                leave_ts=leave_ts,
-                dwell_s=event.dwell_s,
-            )
 
     def _should_persist_occupancy(self, zone_id: int, ts: float) -> bool:
         """Return whether enough time has elapsed to persist this zone's sample."""
