@@ -47,7 +47,13 @@ pip install -e ".[inference,reid]"
 python scripts/export_model.py --weights yolo11n.pt --format openvino --int8
 ```
 
-Docker: `docker compose up --build` runs db (SQL Server) + cache (Redis) + api + worker.
+Docker: `docker compose up --build` runs a single `api` service (API + engine in one
+process, SQLite). The split api/worker + Redis + SQL Server topology was removed: with
+a shared Redis bus, `RuntimeWiring` subscribes a `PersistenceProjector` in *every*
+process, and that projector appends — so each event was persisted once per process,
+while `--api` also ran the engine for every camera. Every time-series row was written
+roughly four times. If you scale workers out again, exactly one process may wire the
+persistence projector.
 
 ## Architecture
 

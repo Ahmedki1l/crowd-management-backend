@@ -87,26 +87,28 @@ pip install -e ".[inference,reid]"
 python scripts/export_model.py --weights yolo11n.pt --format openvino --int8
 ```
 
-## Production (SQL Server) with Docker
+## Docker
 
 ```bash
-docker compose up --build          # db (SQL Server) + cache (Redis) + api + worker
+docker compose up --build                          # one `api` service: API + engine, SQLite
 docker compose run --rm api alembic upgrade head   # apply migrations
 ```
 
-The same image runs the API and the workers (mode chosen by command). GPU
-workers: install the `gpu` extra, set `detector.runtime: tensorrt`, and
-uncomment the `deploy.resources` block in `docker-compose.yaml`.
+One process runs both the API and the camera engine (`--api`). That is deliberate.
+`RuntimeWiring` subscribes a `PersistenceProjector` in **every** process it runs in,
+and that projector *appends* rows — it is not idempotent. The previous split
+`api` + `worker` topology sharing a Redis bus therefore persisted each event once per
+process, and because `--api` also starts the engine for every camera, it ran the
+pipeline twice as well: every occupancy sample and crossing event was written roughly
+four times.
 
 ### Scaling out (separate worker + API processes)
 
-Set `REDIS_URL` (`cache.url`). The event bus and the current-state read model
-then transparently switch to their Redis-backed implementations
-(`RedisEventBus`, `RedisStateStore`) behind the same interfaces, so worker
-processes publish analytics events and health that a separate API process both
-projects into its read model and streams over SSE. With `cache.url` empty the
-in-process implementations are used (single-process `--api`, unchanged). The
-Redis connection is lazy, so nothing requires a live server at import time.
+Still possible — set `REDIS_URL` (`cache.url`) and the event bus and current-state read
+model switch to their Redis-backed implementations (`RedisEventBus`, `RedisStateStore`)
+behind the same interfaces. But **exactly one process may wire the persistence
+projector**, or the time-series tables will be double-written. There is no uniqueness
+constraint on any of them to catch it.
 
 ### Cross-camera identity (Re-ID)
 

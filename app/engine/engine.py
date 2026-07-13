@@ -62,10 +62,14 @@ class _CameraRuntime:
         spec: CameraSpec,
         password: str,
         detector: Detector,
-        tracker: Tracker,
+        tracker: Tracker | None,
         extractor: EmbeddingExtractor | None,
     ) -> None:
-        """Store the immutable inputs for one camera's pipeline."""
+        """Store the immutable inputs for one camera's pipeline.
+
+        ``tracker`` is ``None`` for snapshot-occupancy cameras, which never reach the
+        tracked path (see :meth:`SnapshotPullConfig.counts_from_detections`).
+        """
         self.spec = spec
         self.password = password
         self.detector = detector
@@ -379,12 +383,12 @@ def _build_runtimes(
         build_tracker,
     )
 
-    # Re-ID embeddings are consumed only on the tracked path. Snapshot-occupancy
-    # cameras that count detections directly (count_from_detections) never track,
-    # so building an OSNet extractor for them would load the model for nothing.
-    # Build it only where tracking actually runs — mirroring
-    # CameraPipeline._occ_from_detections — which in this deployment is just the
-    # entry/exit door, keeping "Re-ID on" scoped to the cameras that use it.
+    # The tracker and the Re-ID extractor are consumed only on the tracked path.
+    # Snapshot-occupancy cameras that count detections directly never reach it (see
+    # SnapshotPullConfig.counts_from_detections_for — the single predicate
+    # CameraPipeline branches on too), so building either for them is pure waste:
+    # ByteTrackTracker eagerly imports `supervision`, which drags in matplotlib/scipy/
+    # PIL for ~80 MB of RSS and ~0.7 s of startup, to construct objects nothing calls.
     snap = cfg.processing.snapshot_pull
     runtimes: list[_CameraRuntime] = []
     for spec, password in pairs:
@@ -395,10 +399,8 @@ def _build_runtimes(
             else cfg.detector.model_copy(update={"imgsz": spec.imgsz})
         )
         detector = build_detector(det_cfg)
-        tracker = build_tracker(cfg.tracker)
-        runs_tracking = not (
-            snap.count_from_detections and spec.fps_role.value in snap.roles
-        )
+        runs_tracking = not snap.counts_from_detections_for(spec.fps_role.value)
+        tracker = build_tracker(cfg.tracker) if runs_tracking else None
         extractor = (
             build_embedding_extractor(cfg.tracker) if runs_tracking else None
         )

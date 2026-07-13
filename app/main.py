@@ -47,7 +47,7 @@ def _run_api_with_engine(host: str, port: int) -> None:
 
 
 def _wire_runtime():
-    """Attach the bus consumers (read-model, persistence, optional DT push).
+    """Attach the bus consumers (read-model, persistence).
 
     Worker processes have no FastAPI lifespan, so without this their published
     events would have no projector/persistence consumer. Returns the wiring so
@@ -57,7 +57,7 @@ def _wire_runtime():
     from app.services.runtime_wiring import RuntimeWiring
     from app.services.state_store import get_state_store
 
-    wiring = RuntimeWiring(get_event_bus(), get_state_store(), get_settings())
+    wiring = RuntimeWiring(get_event_bus(), get_state_store())
     wiring.start()
     return wiring
 

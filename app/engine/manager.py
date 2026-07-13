@@ -43,6 +43,17 @@ _SCOPE_ROLES: dict[str, CameraRole | None] = {
 }
 
 
+class EntryExitDisabledError(RuntimeError):
+    """The ``entry_exit`` scope was requested while config disables the gate.
+
+    ``processing.entry_exit_enabled`` is the master switch. The ``"all"`` scope honours
+    it via :func:`~app.engine.engine._resolve_target_ids`, but the ``entry_exit`` scope
+    resolves *explicit* camera ids, and explicit ids deliberately skip that filter (so
+    ``--worker --camera <gate>`` can still run the gate for debugging). Without this
+    guard, one HTTP call would silently start the pipeline the config says is off.
+    """
+
+
 class EngineManager:
     """Owns the live engine and swaps the camera scope it runs on demand."""
 
@@ -81,9 +92,16 @@ class EngineManager:
 
         Raises:
             ValueError: If ``mode`` is not a known scope.
+            EntryExitDisabledError: If ``mode`` is ``"entry_exit"`` while
+                ``processing.entry_exit_enabled`` is false.
         """
         if mode not in _SCOPE_ROLES:
             raise ValueError(f"unknown engine mode {mode!r}; expected one of {sorted(_SCOPE_ROLES)}")
+        if mode == "entry_exit" and not get_settings().processing.entry_exit_enabled:
+            raise EntryExitDisabledError(
+                "entry/exit is disabled by processing.entry_exit_enabled; "
+                "enable it in config, then POST /engine/reset to apply"
+            )
         camera_ids = camera_ids_for_role(_SCOPE_ROLES[mode])
         with self._lock:
             self._apply(mode, camera_ids)

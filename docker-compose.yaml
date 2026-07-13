@@ -1,71 +1,30 @@
 # Local / edge stack (HLD 12.4). The platform gateway/reverse proxy is external.
-# The same image runs as the API and as the pipeline workers (different command).
+#
+# ONE process runs the API and the camera engine (`--api`). That is deliberate, not a
+# simplification: `RuntimeWiring` subscribes a `PersistenceProjector` in *every* process
+# it runs in, and that projector appends rows — it is not idempotent. A split
+# api + worker topology sharing a Redis bus therefore persists each event once per
+# process, and (because `--api` also starts the engine for every camera) runs the
+# pipeline twice as well, multiplying every occupancy sample and crossing event.
+#
+# If you ever do scale workers out to separate processes, exactly one of them may wire
+# the persistence projector. Until then, keep this single-service.
 services:
-  db:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    environment:
-      ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}"
-      MSSQL_PID: "Developer"
-    ports:
-      - "1433:1433"
-    volumes:
-      - mssql_data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  cache:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-
   api:
     build: .
     command: ["python", "-m", "app.main", "--api", "--host", "0.0.0.0", "--port", "8008"]
     environment:
-      DATABASE_URL: "mssql+pyodbc://sa:${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}@db:1433/camera_analytics?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
-      REDIS_URL: "redis://cache:6379/0"
-      API_AUTH_SECRET: "${API_AUTH_SECRET:-change-me}"
+      DATABASE_URL: "sqlite:////app/data/camera_analytics.db"
+      API_AUTH_SECRET: "${API_AUTH_SECRET:?set API_AUTH_SECRET in .env}"
       CAMERA_CREDENTIALS_KEY: "${CAMERA_CREDENTIALS_KEY:?set CAMERA_CREDENTIALS_KEY in .env}"
-      DT_API_URL: "${DT_API_URL:-}"
-      CONFIG_PATH: "config/config.example.yaml"
+      CONFIG_PATH: "${CONFIG_PATH:-config/config.example.yaml}"
       LOG_LEVEL: "INFO"
     ports:
       - "8008:8008"
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       - ./models:/app/models:ro
-      - snapshot_data:/app/data
-
-  worker:
-    build: .
-    command: ["python", "-m", "app.main", "--workers"]
-    environment:
-      DATABASE_URL: "mssql+pyodbc://sa:${MSSQL_SA_PASSWORD:-Str0ng!Passw0rd}@db:1433/camera_analytics?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
-      REDIS_URL: "redis://cache:6379/0"
-      CAMERA_CREDENTIALS_KEY: "${CAMERA_CREDENTIALS_KEY:?set CAMERA_CREDENTIALS_KEY in .env}"
-      DT_API_URL: "${DT_API_URL:-}"
-      CONFIG_PATH: "config/config.example.yaml"
-      LOG_LEVEL: "INFO"
-    depends_on:
-      db:
-        condition: service_healthy
-      cache:
-        condition: service_started
-    volumes:
-      - ./models:/app/models:ro
-      - snapshot_data:/app/data
-    # GPU workers (TensorRT): uncomment and set detector.runtime=tensorrt
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+      - ./config:/app/config:ro
+      - app_data:/app/data
 
 volumes:
-  mssql_data:
-  snapshot_data:
+  app_data:

@@ -63,6 +63,28 @@ def test_engine_switch_modes(
     assert response.json()["mode"] == expected_mode
 
 
+def test_entry_exit_switch_is_refused_when_config_disables_the_gate(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``processing.entry_exit_enabled`` is the master switch; the API must not bypass it.
+
+    The ``entry_exit`` scope resolves *explicit* camera ids, and explicit ids skip the
+    gate filter in ``_resolve_target_ids`` (so ``--worker --camera <gate>`` still works
+    for debugging). Without the guard, this one call would start the pipeline the config
+    says is off.
+    """
+    import app.engine.manager as manager
+    from app.config.schema import AppConfig, ProcessingConfig
+
+    disabled = AppConfig(processing=ProcessingConfig(entry_exit_enabled=False))
+    monkeypatch.setattr(manager, "get_settings", lambda: disabled)
+
+    response = client.post("/api/v1/engine/entry-exit", headers=auth_headers)
+
+    assert response.status_code == 409, response.text
+    assert "entry_exit_enabled" in response.json()["detail"]
+
+
 def test_engine_reset_returns_to_all(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

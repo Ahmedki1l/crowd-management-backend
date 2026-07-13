@@ -27,10 +27,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     # The same wiring used by the worker entry points, so the bus consumers
-    # (read-model projector, persistence projector, optional DT push) never drift.
+    # (read-model projector, persistence projector) never drift.
     from app.services.runtime_wiring import RuntimeWiring
 
-    wiring = RuntimeWiring(get_event_bus(), get_state_store(), settings)
+    wiring = RuntimeWiring(get_event_bus(), get_state_store())
     wiring.start()
     app.state.runtime_wiring = wiring
 

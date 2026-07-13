@@ -11,7 +11,7 @@ on the lightweight core (no cameras/GPU) — `pytest` → **155 passed**.
 | **FR-SAF-01/02/03** intrusion + overcrowding alerts | `analytics/safety`, `engine/camera_pipeline` (snapshot+persist), `services/alert_service` | `GET /alerts`, `POST /alerts/{id}/ack`, `/stream` | `test_safety`, `test_api_alerts` |
 | **FR-WAIT-01/02/03** dwell + rolling average | `localisation/state_machine`, `analytics/waiting` | `GET /waiting`, `/state`, `/history/waiting` | `test_waiting`, `test_pipeline_recorded`, `test_api_metrics` |
 | **FR-HM-01/02/03** density grid over time range | `analytics/heatmap`, `engine` (grid persist), `services/heatmap_service`, `db/heatmap_repo` | `GET /heatmap` | `test_heatmap` |
-| **NFR-01** timeliness (few seconds) | `events/event_bus`, `publish/{sse,dt_client}`, `services/projectors` | `/stream`, DT push | `test_event_bus`, `test_sse_stream`, `test_dt_push`, `test_projectors` |
+| **NFR-01** timeliness (few seconds) | `events/event_bus`, `publish/sse`, `services/projectors` | `/stream` | `test_event_bus`, `test_sse_stream`, `test_projectors` |
 | **NFR-02** RTSP inputs only | `ingestion/{capture,stream_url,recorded}` | `POST /cameras/{id}/test` | `test_camera_service`, `test_frame_queue` |
 | **NFR-03** accuracy (UAT target) | `inference` tuning via `config` (`detector.confidence`, tracker, Re-ID) | `GET/PUT /config` | tuned at UAT; geometry/tracker logic in `test_geometry`, `test_reid` |
 | **NFR-04** retention | heat-map grid pre-aggregation + `config.retention` | `/history/*`, `/heatmap` | `test_heatmap`, `test_api_history` |

@@ -26,8 +26,6 @@ fresh in-memory database the alert-persistence assertion reads back.
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
 from app.config.schema import AppConfig, ProcessingConfig, StateMachineConfig
@@ -45,7 +43,6 @@ from app.events.events import (
     CountUpdate,
     CrossingEvent,
     DwellClosed,
-    Event,
     OccupancyUpdate,
 )
 from app.inference.fakes import FakeDetector, FakeEmbeddingExtractor, FakeTracker
@@ -54,6 +51,7 @@ from app.ingestion.capture import FrameSourceCaptureThread
 from app.ingestion.recorded import RecordedClipSource
 from app.services.state_store import StateStore
 from app.utils.clock import FakeClock
+from tests.fixtures.collector import EventCollector
 from tests.fixtures.frames import make_clip
 from tests.fixtures.specs import (
     make_camera_spec,
@@ -96,48 +94,6 @@ def _person_bbox_at(cx: float, cy: float, w: float = 60.0, h: float = 160.0) -> 
 def _person_at(cx: float, cy: float) -> Detection:
     """A person detection whose ground point (bbox bottom-centre) is ``(cx, cy)``."""
     return Detection(bbox=_person_bbox_at(cx, cy), confidence=0.9)
-
-
-class _Collector:
-    """Thread-safe sync bus subscriber that records every published event.
-
-    The pipeline publishes from its worker thread, so collection must be guarded.
-    A :class:`threading.Condition` lets a test block until a predicate over the
-    collected events holds (e.g. "a DwellClosed has arrived") instead of sleeping
-    for a fixed time; the condition is notified on every published event.
-    """
-
-    def __init__(self) -> None:
-        self._cond = threading.Condition()
-        self._events: list[Event] = []
-
-    def __call__(self, event: Event) -> None:
-        with self._cond:
-            self._events.append(event)
-            self._cond.notify_all()
-
-    def of_type(self, event_type: type) -> list[Event]:
-        """Return a snapshot of the collected events of ``event_type``."""
-        with self._cond:
-            return [e for e in self._events if isinstance(e, event_type)]
-
-    def wait_for_count(
-        self, event_type: type, count: int, timeout: float
-    ) -> bool:
-        """Block until ``count`` events of ``event_type`` have been collected.
-
-        Returns ``True`` once the threshold is reached, ``False`` on timeout. The
-        wait is driven by the bus condition (woken on each event), so it returns
-        as soon as the condition is met — never a fixed sleep. The predicate runs
-        while the condition lock is held, so it reads ``self._events`` directly
-        rather than re-entering :meth:`of_type`.
-        """
-
-        def _reached() -> bool:
-            return sum(isinstance(e, event_type) for e in self._events) >= count
-
-        with self._cond:
-            return self._cond.wait_for(_reached, timeout=timeout)
 
 
 def _config() -> AppConfig:
@@ -187,7 +143,7 @@ def _run_pipeline(
     await_count: int = 1,
     embedding_extractor: FakeEmbeddingExtractor | None = None,
     reid_manager: ReIDManager | None = None,
-) -> tuple[_Collector, StateStore]:
+) -> tuple[EventCollector, StateStore]:
     """Drive the real pipeline over ``script`` and return the collected events.
 
     Subscribes the collector to the bus *before* starting so no event is missed,
@@ -199,7 +155,7 @@ def _run_pipeline(
     clock = FakeClock(start=_BASE_TS)
     bus = InMemoryEventBus()
     store = StateStore()
-    collector = _Collector()
+    collector = EventCollector()
     bus.subscribe_sync(collector)
 
     pipeline = CameraPipeline(

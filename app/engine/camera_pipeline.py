@@ -96,7 +96,7 @@ class CameraPipeline:
         spec: CameraSpec,
         password: str,
         detector: Detector,
-        tracker: Tracker,
+        tracker: Tracker | None,
         embedding_extractor: EmbeddingExtractor | None,
         bus: InMemoryEventBus,
         clock: Clock,
@@ -155,14 +155,25 @@ class CameraPipeline:
             if dataset_cfg.enabled
             else None
         )
-        self._is_snapshot_source = (
-            spec.fps_role.value in cfg.processing.snapshot_pull.roles
-        )
+        # Both predicates come from the config object rather than being re-derived
+        # here, so the engine (which decides whether to even build a tracker for this
+        # camera) and this branch read the same rule.
+        snap = cfg.processing.snapshot_pull
+        self._is_snapshot_source = snap.is_snapshot_role(spec.fps_role.value)
         # Snapshot occupancy: count detections in-zone directly, skipping the
         # tracker/presence machine (unreliable at the snapshot cadence, only undercounts).
-        self._occ_from_detections = (
-            cfg.processing.snapshot_pull.count_from_detections and self._is_snapshot_source
-        )
+        self._occ_from_detections = snap.counts_from_detections_for(spec.fps_role.value)
+
+        # Fail here rather than per-frame. The worker catches every exception so one
+        # bad frame cannot kill the pipeline, which means a None tracker on the tracked
+        # path would surface only as an AttributeError logged on every single frame,
+        # forever, while the camera silently published nothing.
+        if tracker is None and not self._occ_from_detections:
+            raise ValueError(
+                f"camera {spec.id} ({spec.fps_role.value}) runs the tracked path but was "
+                "built without a tracker; engine and pipeline disagree on "
+                "SnapshotPullConfig.counts_from_detections_for"
+            )
 
         # Built in start() so a pipeline can be re-created cheaply on restart.
         self._queue: BoundedFrameQueue | None = None
@@ -441,7 +452,9 @@ class CameraPipeline:
                 )
             return
 
-        tracked = self._tracker.update(detections, image)
+        # Non-None whenever this line is reachable: the engine builds a tracker for
+        # exactly the cameras that fall through the _occ_from_detections return above.
+        tracked = self._tracker.update(detections, image)  # type: ignore[union-attr]
         tracked = self._attach_identities(image, tracked, ts)
 
         membership = self._zone_eval.membership(tracked)  # type: ignore[union-attr]

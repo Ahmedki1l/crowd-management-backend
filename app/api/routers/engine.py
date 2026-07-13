@@ -4,7 +4,8 @@ Buttons for the single-node ``--api`` deployment to change the engine's scope
 without restarting the process:
 
 * ``POST /engine/all``          — run every enabled (allowlisted) camera
-* ``POST /engine/entry-exit``   — run only the ``entry_exit`` cameras
+* ``POST /engine/entry-exit``   — run only the ``entry_exit`` cameras (409 when
+  ``processing.entry_exit_enabled`` is false — that flag is the master switch)
 * ``POST /engine/occupancy``    — run only the ``occupancy`` cameras
 * ``POST /engine/reset``        — reload config (.env + YAML) and restart on all
 * ``POST /engine/stop``         — stop every pipeline (idle)
@@ -17,10 +18,10 @@ not block the event loop.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import AuthDep
-from app.engine.manager import get_engine_manager
+from app.engine.manager import EntryExitDisabledError, get_engine_manager
 
 router = APIRouter(prefix="/engine", tags=["engine"])
 
@@ -39,8 +40,19 @@ def run_all() -> dict:
 
 @router.post("/entry-exit", dependencies=[AuthDep])
 def run_entry_exit() -> dict:
-    """Run only the cameras with the ``entry_exit`` role."""
-    return get_engine_manager().switch("entry_exit")
+    """Run only the cameras with the ``entry_exit`` role.
+
+    Raises:
+        HTTPException: ``409`` when ``processing.entry_exit_enabled`` is false. The
+            config flag is the master switch; re-enable it there rather than starting
+            the gate behind the config's back.
+    """
+    try:
+        return get_engine_manager().switch("entry_exit")
+    except EntryExitDisabledError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
 
 
 @router.post("/occupancy", dependencies=[AuthDep])

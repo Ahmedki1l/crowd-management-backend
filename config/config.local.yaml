@@ -65,7 +65,8 @@ tracker:
                                    # Only the tracked path uses it → effectively door-only
                                    # (engine builds the extractor for tracked cameras only).
   reid_runtime: onnx               # OSNet-AIN as ONNX under onnxruntime (CPU-only, no torch
-                                   # at runtime). Exported via scripts/training/export_reid_onnx.py.
+                                   # at runtime). The .onnx below is committed; the exporter
+                                   # script was removed with the Digital-Twin/Re-ID tooling.
   reid_model_path: "models/reid/osnet_ain_x1_0_msmt17.onnx"  # committed here (not just .env)
                                    # so deployment resolves the FILE, not the models/reid dir.
   track_thresh: 0.30               # align with detector.confidence so seated/low-conf

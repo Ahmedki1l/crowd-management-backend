@@ -69,14 +69,12 @@ class Secrets(BaseModel):
 
     camera_credentials_key: str | None = None
     api_auth_secret: str = "change-me"
-    dt_auth_header: str | None = None
 
 
 def load_secrets() -> Secrets:
     return Secrets(
         camera_credentials_key=os.environ.get("CAMERA_CREDENTIALS_KEY") or None,
         api_auth_secret=os.environ.get("API_AUTH_SECRET", "change-me"),
-        dt_auth_header=os.environ.get("DT_AUTH_HEADER") or None,
     )
 
 

@@ -17,13 +17,6 @@ cache:
   # Optional; required only when pipeline workers are scaled out across processes/hosts.
   url: "${REDIS_URL}"            # empty -> in-process event bus + in-memory state only
 
-digital_twin:
-  push_url: "${DT_API_URL}"      # outbound push target; empty -> SSE-only
-  push_enabled: false
-  auth_header: "${DT_AUTH_HEADER}"
-  timeout_seconds: 5.0
-  max_retries: 3
-
 api:
   prefix: "/api/v1"
   auth_secret: "${API_AUTH_SECRET}"

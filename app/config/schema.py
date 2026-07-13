@@ -20,14 +20,6 @@ class CacheConfig(BaseModel):
     url: str | None = None
 
 
-class DigitalTwinConfig(BaseModel):
-    push_url: str | None = None
-    push_enabled: bool = False
-    auth_header: str | None = None
-    timeout_seconds: float = 5.0
-    max_retries: int = 3
-
-
 class ApiConfig(BaseModel):
     prefix: str = "/api/v1"
     auth_secret: str = "change-me"
@@ -69,6 +61,21 @@ class SnapshotPullConfig(BaseModel):
     # snapshot cadence ByteTrack can't reliably link people across frames, so
     # tracking only drops real people from the count. Recommended for snapshot pull.
     count_from_detections: bool = False
+
+    def is_snapshot_role(self, role: str) -> bool:
+        """Whether cameras in ``role`` pull HTTP stills instead of decoding RTSP."""
+        return role in self.roles
+
+    def counts_from_detections_for(self, role: str) -> bool:
+        """Whether ``role`` counts detections in-zone directly, skipping the tracker.
+
+        The engine uses this to decide whether a camera needs a tracker and a Re-ID
+        extractor at all, and ``CameraPipeline`` uses it to pick the frame-processing
+        branch. The two must agree — a camera built without a tracker that then took
+        the tracked branch would dereference ``None`` — so the rule lives here once
+        rather than being restated at each call site.
+        """
+        return self.count_from_detections and self.is_snapshot_role(role)
 
 
 class ProcessingConfig(BaseModel):
@@ -166,7 +173,6 @@ class AppConfig(BaseModel):
 
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
-    digital_twin: DigitalTwinConfig = Field(default_factory=DigitalTwinConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     detector: DetectorConfig = Field(default_factory=DetectorConfig)
