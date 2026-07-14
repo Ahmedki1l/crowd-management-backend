@@ -207,8 +207,8 @@ $('save').onclick = async ()=>{
   if(pts.length<3){ log('need at least 3 points'); return; }
   const space = $('zspace').value.trim();
   if(!space){
-    log('dt_space_id is required. Occupancy history is stored per space, so a zone\n'
-      + 'without one is counted live and then forgotten - it appears in no history at all.\n'
+    log('dt_space_id is required. Occupancy history is stored per space, so a zone\\n'
+      + 'without one is counted live and then forgotten - it appears in no history at all.\\n'
       + 'Use an existing space (e.g. b1-waiting-area) so this zone feeds it.');
     return;
   }
@@ -243,9 +243,9 @@ $('delzones').onclick = async ()=>{
   try{ const r = await fetch(API+'/zones',{headers:hdr()}); const zs = await r.json();
     const mine = zs.filter(z=>String(z.camera_id)===String(cam));
     if(!mine.length){ log('no existing zones on this camera'); return; }
-    if(!confirm('Delete '+mine.length+' existing zone(s) on camera '+cam+'?\n\n'
-      + 'History is safe: it is keyed by dt_space_id, not by zone id, so redrawing a\n'
-      + 'polygon no longer orphans it. Re-use the SAME dt_space_id to keep the series\n'
+    if(!confirm('Delete '+mine.length+' existing zone(s) on camera '+cam+'?\\n\\n'
+      + 'History is safe: it is keyed by dt_space_id, not by zone id, so redrawing a\\n'
+      + 'polygon no longer orphans it. Re-use the SAME dt_space_id to keep the series\\n'
       + 'continuous.')) return;
     for(const z of mine){ await fetch(API+'/zones/'+z.id,{method:'DELETE',headers:hdr()}); }
     existing=[]; draw(); log('deleted '+mine.length+' zone(s). Now draw the new ROI and Save.');
