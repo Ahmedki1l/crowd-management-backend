@@ -2,7 +2,7 @@
 
 Every functional requirement traces to the code that implements it, the API it is
 served over, and the automated test(s) that verify it (vnv-guard). All tests run
-on the lightweight core (no cameras/GPU) — `pytest` → **308 passed**.
+on the lightweight core (no cameras/GPU) — `pytest` → **315 passed**.
 
 | Requirement | Implementing components | Endpoint(s) | Verifying test(s) |
 |---|---|---|---|
@@ -25,8 +25,8 @@ on the lightweight core (no cameras/GPU) — `pytest` → **308 passed**.
 - [x] E2E critical path proven: synthetic frames → occupancy/crossing → read model (`test_pipeline_recorded`), and the **live snapshot-pull occupancy path** (`test_snapshot_occupancy`).
 - [x] Tests green without cameras/GPU/models (FakeDetector/FakeTracker, lazy heavy imports).
 - [x] Alembic baseline migration creates the full HLD §9 schema.
-- [x] Re-ID is **functional** (global_id consumed as identity), not gold-plating — closes the validation-board CAIO no-go.
-- [x] Real `CameraPipeline` integration-tested (alert+snapshot persist, health, Re-ID identity, snapshot-pull occupancy).
+- [ ] Re-ID: `global_id` is consumed as identity on the **tracked** path only, and it is **disabled** in the deployed config. It does **not** de-duplicate across overlapping cameras (see the row above). No pipeline-level identity test remains.
+- [x] Real `CameraPipeline` integration-tested (`test_camera_pipeline`: occupancy, crossing, camera health) and the **deployed snapshot-pull path** (`test_snapshot_occupancy`). The history writers are tested on their real threads (`test_history_writers_threaded`), and every endpoint is smoke-tested (`test_api_smoke`).
 - [x] Scale-out (NFR-05) implemented: Redis bus/state, config-selected, in-process path unchanged.
 - [x] All eight guard skills run (design, clean-code, test, docs, testing, e2e, vnv, validation-board).
 
