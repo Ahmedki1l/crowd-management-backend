@@ -30,13 +30,17 @@ async def lifespan(app: FastAPI):
     # (read-model projector, persistence projector) never drift.
     from app.services.runtime_wiring import RuntimeWiring
 
-    wiring = RuntimeWiring(get_event_bus(), get_state_store())
-    wiring.start()
-    app.state.runtime_wiring = wiring
-
+    # Schema first: the wiring starts the history writers, which begin polling the DB
+    # immediately. Starting them against a database whose tables do not exist yet is a
+    # guaranteed first-tick failure (it self-heals on the next tick, but it logs a stack
+    # trace on every cold start, which trains people to ignore stack traces).
     # Convenience for local/dev (SQLite). Production schema is managed by Alembic.
     if settings.database.url.startswith("sqlite"):
         init_db()
+
+    wiring = RuntimeWiring(get_event_bus(), get_state_store())
+    wiring.start()
+    app.state.runtime_wiring = wiring
 
     try:
         yield

@@ -33,6 +33,8 @@ def _zone_payload(camera_id: int, **over) -> dict:
         "name": "queue-zone",
         "type": "occupancy",
         "polygon": [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]],
+        # Required: occupancy history is keyed by space.
+        "dt_space_id": "b1-waiting-area",
     }
     payload.update(over)
     return payload
@@ -81,6 +83,58 @@ def test_create_zone_with_two_point_polygon_returns_422(
     )
 
     assert response.status_code == 422
+
+
+def test_create_zone_without_a_space_returns_422(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Occupancy history is keyed by ``dt_space_id``.
+
+    A zone without one is counted live and then forgotten — it appears in no history at
+    all. 31 of this deployment's 44 zones were created that way, and not one has a single
+    row of history. The drawing tool warned about it in JavaScript, which is a dialog to
+    click through, not a constraint; the API must be the constraint.
+    """
+    camera_id = _make_camera(client, auth_headers)
+    payload = _zone_payload(camera_id)
+    del payload["dt_space_id"]
+
+    response = client.post("/api/v1/zones", json=payload, headers=auth_headers)
+
+    assert response.status_code == 422
+
+
+def test_create_zone_with_an_empty_space_returns_422(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """An empty string is not a space — it would orphan the zone just as effectively."""
+    camera_id = _make_camera(client, auth_headers)
+
+    response = client.post(
+        "/api/v1/zones",
+        json=_zone_payload(camera_id, dt_space_id=""),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_patch_cannot_strip_a_zones_space(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """There is deliberately no way to orphan an existing zone from its history."""
+    camera_id = _make_camera(client, auth_headers)
+    zone_id = client.post(
+        "/api/v1/zones", json=_zone_payload(camera_id), headers=auth_headers
+    ).json()["id"]
+
+    response = client.patch(
+        f"/api/v1/zones/{zone_id}", json={"dt_space_id": ""}, headers=auth_headers
+    )
+
+    assert response.status_code == 422
+    still_there = client.get(f"/api/v1/zones/{zone_id}", headers=auth_headers).json()
+    assert still_there["dt_space_id"] == "b1-waiting-area"
 
 
 def test_list_zones_returns_created_zone(

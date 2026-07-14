@@ -83,8 +83,8 @@ _ROI_HTML = """<!doctype html>
     <label>Name</label><input id="zname" value="ROI">
     <label>Type (zone only)</label>
     <select id="ztype"><option>occupancy</option></select>
-    <label>dt_space_id (zone space) &mdash; set per floor!</label>
-    <input id="zspace" placeholder="e.g. b1-waiting-area / gf-waiting-area">
+    <label>dt_space_id (zone space) &mdash; <b>REQUIRED</b>: history is keyed by it</label>
+    <input id="zspace" required placeholder="e.g. b1-waiting-area / gf-waiting-area">
     <label>area_id (line entry/exit)</label>
     <input id="larea" placeholder="e.g. main-entrance">
     <div style="display:flex;gap:6px">
@@ -206,9 +206,14 @@ $('save').onclick = async ()=>{
   if($('mode').value==='line') return saveLine();
   if(pts.length<3){ log('need at least 3 points'); return; }
   const space = $('zspace').value.trim();
-  if(!space && !confirm('No dt_space_id set - zone will not appear in any floor rollup. Save anyway?')) return;
+  if(!space){
+    log('dt_space_id is required. Occupancy history is stored per space, so a zone\n'
+      + 'without one is counted live and then forgotten - it appears in no history at all.\n'
+      + 'Use an existing space (e.g. b1-waiting-area) so this zone feeds it.');
+    return;
+  }
   const body = { camera_id: Number($('camera').value), name: $('zname').value,
-    type: $('ztype').value, polygon: pts, dt_space_id: space || null };
+    type: $('ztype').value, polygon: pts, dt_space_id: space };
   try{
     const r = await fetch(API+'/zones',{method:'POST',
       headers:{...hdr(),'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -238,7 +243,10 @@ $('delzones').onclick = async ()=>{
   try{ const r = await fetch(API+'/zones',{headers:hdr()}); const zs = await r.json();
     const mine = zs.filter(z=>String(z.camera_id)===String(cam));
     if(!mine.length){ log('no existing zones on this camera'); return; }
-    if(!confirm('Delete '+mine.length+' existing zone(s) on camera '+cam+'?')) return;
+    if(!confirm('Delete '+mine.length+' existing zone(s) on camera '+cam+'?\n\n'
+      + 'History is safe: it is keyed by dt_space_id, not by zone id, so redrawing a\n'
+      + 'polygon no longer orphans it. Re-use the SAME dt_space_id to keep the series\n'
+      + 'continuous.')) return;
     for(const z of mine){ await fetch(API+'/zones/'+z.id,{method:'DELETE',headers:hdr()}); }
     existing=[]; draw(); log('deleted '+mine.length+' zone(s). Now draw the new ROI and Save.');
   }catch(e){ log(String(e)); }
