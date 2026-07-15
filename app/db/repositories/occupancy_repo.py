@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import cast
 
@@ -47,6 +47,32 @@ _MODELS: dict[Grain, RollupModel] = {
     Grain.MINUTE: OccupancyMinute,
     Grain.HOUR: OccupancyHour,
 }
+
+
+class ResultTooLargeError(Exception):
+    """A history query would return more rows than the caller's cap allows.
+
+    Raised instead of silently truncating: a truncated time series is worse than an
+    error, because the missing tail reads as "the data ends here". The router turns this
+    into a 422 telling the caller to narrow the window or coarsen the bucket.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"result exceeds {limit} rows")
+        self.limit = limit
+
+
+def _as_utc(ts: datetime) -> datetime:
+    """Re-attach UTC to a bucket timestamp read back from the DB.
+
+    Every ``bucket_ts`` is written as timezone-aware UTC (the sampler stamps
+    ``datetime.now(tz=UTC)``), but SQLite has no native timezone type and returns the
+    value **naive**. A naive datetime serializes to ISO-8601 with no offset, which a
+    client parses as *local* time — so a 10:00 UTC bucket would render at 10:00 in the
+    viewer's zone, hours off. Normalising here, at the DB boundary, guarantees every
+    consumer (the API and the rollup watermark) sees UTC.
+    """
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,26 +161,38 @@ class OccupancyRepository:
             grain: Which rollup table to read.
             frm: Inclusive window start (timezone-aware UTC).
             to: Exclusive window end (timezone-aware UTC).
-            space_ids: Restrict to these spaces; ``None`` means every space.
-            floors: Restrict to these floors; ``None`` means every floor.
-            limit: Hard cap on rows returned, so an absurd window cannot exhaust memory.
+            space_ids: Restrict to these spaces; ``None`` or empty means every space.
+            floors: Restrict to these floors; ``None`` or empty means every floor.
+            limit: Cap on rows; exceeding it raises rather than truncating (see below).
+
+        Raises:
+            ResultTooLargeError: If more than ``limit`` rows match. Truncating a time
+                series silently would drop its newest buckets and read as "ends here".
         """
         model = _MODELS[grain]
         stmt = select(model).where(model.bucket_ts >= frm, model.bucket_ts < to)
-        if space_ids:
-            stmt = stmt.where(model.space_id.in_(space_ids))
-        if floors:
-            stmt = stmt.where(model.floor.in_(floors))
+        # Drop blank values: ``?space_id=`` arrives as ``['']``, and ``.in_([''])`` would
+        # match nothing — i.e. an empty filter would return NO rows instead of all.
+        spaces = [s for s in space_ids if s] if space_ids else None
+        floor_names = [f for f in floors if f] if floors else None
+        if spaces:
+            stmt = stmt.where(model.space_id.in_(spaces))
+        if floor_names:
+            stmt = stmt.where(model.floor.in_(floor_names))
         stmt = stmt.order_by(model.bucket_ts, model.space_id)
         if limit is not None:
-            stmt = stmt.limit(limit)
+            # Over-fetch one so an exact-limit result is distinguishable from an
+            # over-limit one; the extra row means the window is genuinely too large.
+            stmt = stmt.limit(limit + 1)
 
         rows = cast("Sequence[OccupancyRollupBase]", self._session.scalars(stmt).all())
+        if limit is not None and len(rows) > limit:
+            raise ResultTooLargeError(limit)
         return [
             RollupRow(
                 space_id=r.space_id,
                 floor=r.floor,
-                bucket_ts=r.bucket_ts,
+                bucket_ts=_as_utc(r.bucket_ts),
                 avg=r.avg,
                 peak=r.peak,
                 min=r.min,
@@ -173,9 +211,10 @@ class OccupancyRepository:
         outage the worker simply resumes from the last bucket it actually wrote.
         """
         model = _MODELS[grain]
-        return self._session.scalars(
+        latest = self._session.scalars(
             select(model.bucket_ts).order_by(model.bucket_ts.desc()).limit(1)
         ).first()
+        return _as_utc(latest) if latest is not None else None
 
     def delete_before(self, grain: Grain, cutoff: datetime) -> int:
         """Delete buckets starting before ``cutoff``. Returns the number removed."""

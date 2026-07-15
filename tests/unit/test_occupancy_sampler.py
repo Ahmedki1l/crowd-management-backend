@@ -149,3 +149,29 @@ def test_stopping_the_sampler_flushes_the_open_bucket(
 
     (row,) = _minutes(session)
     assert row.avg == pytest.approx(6.0)
+
+
+def test_empty_zone_map_does_not_requery_the_db_every_tick(
+    session: Session, store: StateStore, monkeypatch
+) -> None:
+    """With no space-assigned zones the map is legitimately empty.
+
+    Gating the refresh on the map's truthiness would re-read the DB on every 1 Hz tick
+    forever, because an empty dict is falsy. The throttle keys on the load timestamp.
+    """
+    import app.services.occupancy_sampler as sampler_mod
+
+    reads = {"n": 0}
+    real_list = sampler_mod.ZoneRepository.list
+
+    def _counting_list(self):  # type: ignore[no-untyped-def]
+        reads["n"] += 1
+        return real_list(self)
+
+    monkeypatch.setattr(sampler_mod.ZoneRepository, "list", _counting_list)
+
+    sampler = OccupancySampler(store)
+    for i in range(5):
+        sampler.tick(_T0 + timedelta(seconds=i))
+
+    assert reads["n"] == 1, f"reloaded the zone map {reads['n']}x over 5 ticks"

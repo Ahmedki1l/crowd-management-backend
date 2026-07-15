@@ -83,6 +83,28 @@ def test_occupancy_history_returns_one_series_per_space(
     assert [p["peak"] for p in b1["points"]] == [9, 12]
 
 
+def test_occupancy_history_timestamps_are_utc_marked(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    """Bucket timestamps must serialize as UTC (offset/Z), not a bare naive string.
+
+    SQLite has no timezone type and returns ``bucket_ts`` naive, which serializes with no
+    offset — a client then reads a 10:00 UTC bucket as 10:00 *local*, hours off. The repo
+    re-stamps UTC on read; this pins that the API output carries it. It slipped the whole
+    suite because every other test asserts on ``avg``/``peak``, never the timestamp string.
+    """
+    _seed_hours(session)
+
+    body = client.get(
+        "/api/v1/history/occupancy", params=_WINDOW, headers=auth_headers
+    ).json()
+
+    stamps = [p["ts"] for s in body["series"] for p in s["points"]]
+    assert stamps, "expected at least one bucket"
+    for ts in [*stamps, body["start"], body["end"]]:
+        assert ts.endswith("Z") or "+00:00" in ts, f"timestamp not UTC-marked: {ts!r}"
+
+
 @pytest.mark.parametrize(
     ("filter_param", "expected_spaces"),
     [
@@ -121,6 +143,69 @@ def test_occupancy_history_rejects_a_bucket_that_is_not_stored(
     )
 
     assert response.status_code == 422
+
+
+def test_a_window_offset_is_converted_to_utc_not_taken_literally(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    """A ``from``/``to`` carrying an offset must select the right UTC buckets.
+
+    bucket_ts is stored naive on SQLite, so the WHERE compares wall-clock digits. If the
+    router kept a client's +02:00 offset instead of converting, ``12:00+02:00`` would
+    match the 12:00-UTC bucket instead of the 10:00-UTC one it denotes.
+    """
+    _seed_hours(session)  # buckets at 10:00 and 11:00 UTC
+
+    # 09:00-12:00 at +02:00  ==  07:00-10:00 UTC  -> excludes both seeded buckets.
+    response = client.get(
+        "/api/v1/history/occupancy",
+        params={
+            "from": "2024-06-12T09:00:00+02:00",
+            "to": "2024-06-12T12:00:00+02:00",
+            "bucket": "1h",
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200, response.text
+    # 10:00 UTC == 12:00+02:00, which is the exclusive upper bound -> no buckets.
+    assert response.json()["series"] == []
+
+
+def test_an_empty_space_filter_means_all_not_none(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    """``?space_id=`` arrives as ``['']``; a naive ``.in_([''])`` would match nothing."""
+    _seed_hours(session)
+
+    response = client.get(
+        "/api/v1/history/occupancy",
+        params={**_WINDOW, "space_id": ""},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert {s["space_id"] for s in response.json()["series"]} == {
+        "b1-waiting-area",
+        "gf-waiting-area",
+    }
+
+
+def test_a_window_too_large_for_the_cap_is_refused_not_truncated(
+    client: TestClient, auth_headers: dict[str, str], session: Session, monkeypatch
+) -> None:
+    """Silently truncating drops the newest buckets, so the series looks like it ends early."""
+    import app.api.routers.history as history_router
+
+    monkeypatch.setattr(history_router, "_MAX_ROWS", 1)
+    _seed_hours(session)  # 3 rows
+
+    response = client.get(
+        "/api/v1/history/occupancy", params=_WINDOW, headers=auth_headers
+    )
+
+    assert response.status_code == 422
+    assert "narrow" in response.json()["detail"]
 
 
 def test_floor_history_sums_the_spaces_on_a_floor(

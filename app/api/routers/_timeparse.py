@@ -47,7 +47,15 @@ def parse_instant(value: str) -> datetime:
 
     parsed = _try_parse_iso(value)
     if parsed is not None:
-        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+        # Convert an explicit offset to UTC rather than preserving it. bucket_ts is
+        # stored naive on SQLite, so the WHERE compares wall-clock digits: a bound of
+        # 13:00+02:00 must become 11:00 UTC, or it would select the wrong hour. A naive
+        # input is assumed UTC (the documented contract).
+        return (
+            parsed.astimezone(UTC)
+            if parsed.tzinfo is not None
+            else parsed.replace(tzinfo=UTC)
+        )
 
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

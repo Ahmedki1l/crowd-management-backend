@@ -26,7 +26,7 @@ from app.api.schemas.metrics import (
     HistorySeriesOut,
     OccupancyHistoryOut,
 )
-from app.db.repositories.occupancy_repo import Grain
+from app.db.repositories.occupancy_repo import Grain, ResultTooLargeError
 from app.services.entryexit_service import EntryExitService
 from app.services.occupancy_service import OccupancyService
 from app.services.state_store import StateStore
@@ -129,6 +129,17 @@ def entry_exit_daily(
     return EntryExitService(session, store).daily(area_id, day_start, day_end, date_label)
 
 
+def _too_large(exc: ResultTooLargeError) -> HTTPException:
+    """Turn an over-cap query into a 422 that tells the caller how to fix it."""
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            f"window returns more than {exc.limit} buckets; narrow 'from'/'to' or use a "
+            "coarser 'bucket' (1h instead of 1m)"
+        ),
+    )
+
+
 def _resolve_grain(bucket: str) -> Grain:
     """Map the requested bucket onto a stored grain.
 
@@ -176,14 +187,18 @@ def occupancy_history(
         store: Injected live-state cache (required by the service constructor).
 
     Raises:
-        HTTPException: ``422`` if the window is empty or ``bucket`` is not a stored grain.
+        HTTPException: ``422`` if the window is empty, ``bucket`` is not a stored grain,
+            or the window is so large it would exceed the row cap.
     """
     window_start, window_end = _resolve_window(frm, to)
     grain = _resolve_grain(bucket)
     service = OccupancyService(session, store)
-    return service.history(
-        grain, window_start, window_end, space_id, floor, limit=_MAX_ROWS
-    )
+    try:
+        return service.history(
+            grain, window_start, window_end, space_id, floor, limit=_MAX_ROWS
+        )
+    except ResultTooLargeError as exc:
+        raise _too_large(exc) from exc
 
 
 @router.get("/history/occupancy/floors", response_model=FloorHistoryOut)
@@ -206,14 +221,18 @@ def occupancy_history_by_floor(
         store: Injected live-state cache (required by the service constructor).
 
     Raises:
-        HTTPException: ``422`` if the window is empty or ``bucket`` is not a stored grain.
+        HTTPException: ``422`` if the window is empty, ``bucket`` is not a stored grain,
+            or the window is so large it would exceed the row cap.
     """
     window_start, window_end = _resolve_window(frm, to)
     grain = _resolve_grain(bucket)
     service = OccupancyService(session, store)
-    return service.history_by_floor(
-        grain, window_start, window_end, floor, limit=_MAX_ROWS
-    )
+    try:
+        return service.history_by_floor(
+            grain, window_start, window_end, floor, limit=_MAX_ROWS
+        )
+    except ResultTooLargeError as exc:
+        raise _too_large(exc) from exc
 
 
 @router.get("/history/entry-exit", response_model=HistorySeriesOut)

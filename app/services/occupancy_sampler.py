@@ -210,9 +210,15 @@ class OccupancySampler:
     # Config map
     # ------------------------------------------------------------------ #
     def _refresh_zone_map(self, now: datetime) -> None:
-        """Reload zone -> (space, floor, camera), at most once per ``_MAP_REFRESH_S``."""
+        """Reload zone -> (space, floor, camera), at most once per ``_MAP_REFRESH_S``.
+
+        Throttle on the load *timestamp*, not the map contents: a deployment with no
+        space-assigned zones has a legitimately empty map, and gating on ``self._zone_map``
+        (falsy when empty) would re-query the DB on every 1 Hz tick forever.
+        ``_map_loaded_at`` starts at 0.0, so the first tick still loads.
+        """
         epoch = now.timestamp()
-        if self._zone_map and epoch - self._map_loaded_at < _MAP_REFRESH_S:
+        if self._map_loaded_at and epoch - self._map_loaded_at < _MAP_REFRESH_S:
             return
 
         with session_scope() as session:
