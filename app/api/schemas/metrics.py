@@ -148,12 +148,26 @@ class OccupancyHistoryOut(BaseModel):
     series: list[OccupancySeriesOut]
 
 
+class FloorBucket(OccupancyBucket):
+    """One floor bucket: its spaces summed, plus how many of them actually reported.
+
+    A floor total is the sum of the spaces present in that bucket. A space is absent only
+    when it was fully blind (all its cameras down) for the whole bucket, so a bucket with
+    ``spaces_reporting < spaces_expected`` is summing fewer areas — its lower total is a
+    coverage gap, not necessarily a real drop in people. These two counts make that
+    explicit so a dip is never silently mistaken for people leaving.
+    """
+
+    spaces_reporting: int
+    spaces_expected: int
+
+
 class FloorSeriesOut(BaseModel):
     """Occupancy history for one floor: its spaces summed per bucket."""
 
     floor: str
     space_ids: list[str]
-    points: list[OccupancyBucket]
+    points: list[FloorBucket]
 
 
 class FloorHistoryOut(BaseModel):

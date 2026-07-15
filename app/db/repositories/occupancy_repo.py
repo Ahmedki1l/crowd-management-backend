@@ -99,15 +99,24 @@ class OccupancyRepository:
     # ------------------------------------------------------------------ #
     # Writes
     # ------------------------------------------------------------------ #
-    def upsert(self, grain: Grain, row: RollupRow) -> None:
-        """Insert ``row``, or overwrite the bucket if one is already there.
+    def upsert(self, grain: Grain, row: RollupRow, *, merge: bool = False) -> None:
+        """Insert ``row``, or combine it with an existing bucket for the same key.
 
-        Overwrite rather than skip is deliberate: a re-run means the bucket was
-        recomputed from more complete data, so the newer value is the better one.
+        Two callers need opposite semantics for an existing row:
+
+        * The hourly rollup **overwrites** (``merge=False``): it recomputes an hour from
+          all of its minutes, so its value is authoritative and replaces whatever partial
+          value a previous pass wrote.
+        * The sampler **merges** (``merge=True``): a graceful restart mid-minute flushes a
+          partial minute, and the fresh process then accumulates only the rest of that
+          minute. Overwriting would discard the pre-restart samples; merging folds the two
+          partials into the whole minute (samples add, mean re-weights, peak/min/coverage
+          compose).
 
         Args:
             grain: Which rollup table to write.
             row: The aggregated bucket to store.
+            merge: Combine with an existing bucket instead of replacing it.
         """
         model = _MODELS[grain]
         existing = cast(
@@ -133,6 +142,19 @@ class OccupancyRepository:
                     cameras_total=row.cameras_total,
                 )
             )
+        elif merge:
+            combined = existing.samples + row.samples
+            existing.avg = (
+                (existing.avg * existing.samples + row.avg * row.samples) / combined
+                if combined
+                else row.avg
+            )
+            existing.peak = max(existing.peak, row.peak)
+            existing.min = min(existing.min, row.min)
+            existing.samples = combined
+            existing.cameras_healthy = min(existing.cameras_healthy, row.cameras_healthy)
+            existing.cameras_total = max(existing.cameras_total, row.cameras_total)
+            existing.floor = row.floor
         else:
             existing.floor = row.floor
             existing.avg = row.avg

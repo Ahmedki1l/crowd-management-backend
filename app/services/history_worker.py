@@ -11,13 +11,19 @@ The rollup itself
 
 The hourly mean is a **sample-weighted** mean of the minute means, never a plain mean of
 them. Averaging averages is only correct when every minute carries the same weight, and
-they do not: a minute during which a camera was down contributed fewer samples than a
-fully-covered one, and a plain mean would silently give it equal say.
+they do not: a minute that started or ended mid-clock, or lost ticks to a starved thread,
+holds fewer than 60 samples, and a plain mean would give it equal say.
 
     hour.avg = Σ(minute.avg × minute.samples) / Σ(minute.samples)
 
-``peak`` and ``min`` compose exactly (max of maxes, min of mins), so only the mean needs
-the weight.
+(The weight is time, not coverage: a camera-down minute is handled upstream — the sampler
+drops fully-blind ticks and records worst-case coverage, so a degraded minute stays
+visible through ``cameras_healthy`` rather than being silently down-weighted here.)
+
+``peak`` composes as a max of maxes and ``min`` as a min of mins. **Coverage composes as
+the worst** — ``cameras_healthy`` is the *fewest* healthy any contributing minute had — so
+an hour that lost a camera for even one minute reports reduced coverage rather than hiding
+it behind a best-case max.
 
 The worker is **restartable and idempotent by construction**: it resumes from the newest
 hour already written (the watermark), rolls up every complete hour since, and upserts on
@@ -171,7 +177,9 @@ def _aggregate_to_hours(minutes: list[RollupRow]) -> list[RollupRow]:
                 peak=max(m.peak for m in members),
                 min=min(m.min for m in members),
                 samples=samples,
-                cameras_healthy=max(m.cameras_healthy for m in members),
+                # Worst coverage across the hour's minutes, so a one-minute outage still
+                # shows as reduced coverage rather than being hidden behind a best case.
+                cameras_healthy=min(m.cameras_healthy for m in members),
                 cameras_total=max(m.cameras_total for m in members),
             )
         )

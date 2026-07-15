@@ -229,6 +229,34 @@ def test_floor_history_sums_the_spaces_on_a_floor(
     point = floors[0]["points"][0]
     assert point["avg"] == 6.5  # 4.0 + 2.5
     assert point["peak"] == 14  # 9 + 5
+    assert (point["spaces_reporting"], point["spaces_expected"]) == (2, 2)
+
+
+def test_floor_dip_from_a_missing_space_is_flagged_not_silent(
+    client: TestClient, auth_headers: dict[str, str], session: Session
+) -> None:
+    """A floor sums the spaces present in a bucket, so a fully-blind space lowers the total.
+
+    That dip must not be mistaken for people leaving: the bucket reports
+    ``spaces_reporting < spaces_expected`` so a reader can attribute it to a coverage gap.
+    """
+    repo = OccupancyRepository(session)
+    # Hour 10: both B1 spaces present. Hour 11: only one (the other was blind -> gap).
+    repo.upsert(Grain.HOUR, _hour_row("b1-waiting-area", "B1", 10, avg=4.0, peak=9))
+    repo.upsert(Grain.HOUR, _hour_row("b1-lobby", "B1", 10, avg=3.0, peak=7))
+    repo.upsert(Grain.HOUR, _hour_row("b1-waiting-area", "B1", 11, avg=4.0, peak=9))
+    session.commit()
+
+    floors = client.get(
+        "/api/v1/history/occupancy/floors", params=_WINDOW, headers=auth_headers
+    ).json()["floors"]
+
+    by_hour = {p["ts"][11:16]: p for p in floors[0]["points"]}
+    assert by_hour["10:00"]["avg"] == 7.0
+    assert (by_hour["10:00"]["spaces_reporting"], by_hour["10:00"]["spaces_expected"]) == (2, 2)
+    # 11:00 total dropped to 4.0 only because a space was blind — and it says so.
+    assert by_hour["11:00"]["avg"] == 4.0
+    assert (by_hour["11:00"]["spaces_reporting"], by_hour["11:00"]["spaces_expected"]) == (1, 2)
 
 
 def test_entry_exit_history_returns_net_per_bucket(

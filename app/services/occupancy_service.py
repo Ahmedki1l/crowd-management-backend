@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.api.schemas.metrics import (
+    FloorBucket,
     FloorHistoryOut,
     FloorOccupancyOut,
     FloorSeriesOut,
@@ -238,11 +239,13 @@ class OccupancyService:
     ) -> FloorHistoryOut:
         """Return occupancy history aggregated to floors: a floor's spaces summed per bucket.
 
-        Spaces on a floor are disjoint physical areas, so a floor's occupancy is the sum
-        of its spaces' averages within each bucket, and its peak the sum of their peaks in
-        that same bucket. Buckets where only some spaces reported are summed from those
-        that did — ``cameras_healthy``/``cameras_total`` carry the coverage forward so a
-        partial floor is visible as partial.
+        Spaces on a floor are disjoint physical areas, so a floor's occupancy is the sum of
+        its spaces' averages within each bucket (peak the sum of peaks). A space is absent
+        from a bucket only when it was fully blind for the whole bucket, so summing the
+        present spaces can under-report — but silently, which reads as people leaving. Each
+        bucket therefore carries ``spaces_reporting``/``spaces_expected`` (expected being
+        the floor's full space set over the window): a bucket that summed fewer spaces than
+        expected is flagged, not mistaken for a real drop.
         """
         rows = self._occupancy_repo.query(grain, frm, to, None, floors, limit)
 
@@ -254,9 +257,11 @@ class OccupancyService:
 
         floors_out: list[FloorSeriesOut] = []
         for floor, buckets in sorted(by_floor.items()):
-            space_ids = sorted({r.space_id for rs in buckets.values() for r in rs})
+            # Expected = every space that reported anywhere on this floor in the window;
+            # a bucket missing one of these was blind there, not spaceless.
+            expected = sorted({r.space_id for rs in buckets.values() for r in rs})
             points = [
-                OccupancyBucket(
+                FloorBucket(
                     ts=bucket_ts,
                     avg=sum(r.avg for r in members),
                     peak=sum(r.peak for r in members),
@@ -265,11 +270,13 @@ class OccupancyService:
                     samples=min(r.samples for r in members),
                     cameras_healthy=sum(r.cameras_healthy for r in members),
                     cameras_total=sum(r.cameras_total for r in members),
+                    spaces_reporting=len(members),
+                    spaces_expected=len(expected),
                 )
                 for bucket_ts, members in sorted(buckets.items())
             ]
             floors_out.append(
-                FloorSeriesOut(floor=floor, space_ids=space_ids, points=points)
+                FloorSeriesOut(floor=floor, space_ids=expected, points=points)
             )
 
         return FloorHistoryOut(bucket=grain.value, start=frm, end=to, floors=floors_out)

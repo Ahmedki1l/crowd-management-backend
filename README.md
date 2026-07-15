@@ -84,11 +84,16 @@ python --version                             # -> Python 3.11.x
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
-
-.venv\Scripts\activate.bat
 ```
 
-### Then, on either
+### Windows
+
+```bat
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+```
+
+### Then, on any of them
 
 ```bash
 pip install -e ".[dev]"                      # core + test deps (no GPU/models needed)

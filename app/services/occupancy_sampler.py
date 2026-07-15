@@ -52,14 +52,19 @@ _MAP_REFRESH_S = 60.0
 class _SpaceAccumulator:
     """Running sum/count/min/max for one space within the current bucket."""
 
-    __slots__ = ("total", "n", "peak", "low", "cameras_healthy", "cameras_total")
+    __slots__ = ("total", "n", "peak", "low", "worst_healthy", "cameras_total")
 
     def __init__(self) -> None:
         self.total = 0
         self.n = 0
         self.peak = 0
         self.low: int | None = None
-        self.cameras_healthy = 0
+        # Coverage is reported as the WORST the space saw during the bucket, not the best:
+        # a reader must be able to tell an hour that lost a camera (and whose average is
+        # therefore depressed) from a genuine drop in people. ``worst_healthy`` is the
+        # fewest healthy cameras any recorded tick had; ``cameras_total`` is the full
+        # complement. None until the first add so ``min`` doesn't collapse to 0.
+        self.worst_healthy: int | None = None
         self.cameras_total = 0
 
     def add(self, count: int, healthy: int, total: int) -> None:
@@ -67,9 +72,9 @@ class _SpaceAccumulator:
         self.n += 1
         self.peak = max(self.peak, count)
         self.low = count if self.low is None else min(self.low, count)
-        # Coverage is reported as the best the space achieved during the bucket: a
-        # momentary health blip should not make an otherwise-good hour look untrusted.
-        self.cameras_healthy = max(self.cameras_healthy, healthy)
+        self.worst_healthy = (
+            healthy if self.worst_healthy is None else min(self.worst_healthy, healthy)
+        )
         self.cameras_total = max(self.cameras_total, total)
 
     def to_row(self, space_id: str, floor: str | None, bucket_ts: datetime) -> RollupRow:
@@ -81,7 +86,7 @@ class _SpaceAccumulator:
             peak=self.peak,
             min=self.low or 0,
             samples=self.n,
-            cameras_healthy=self.cameras_healthy,
+            cameras_healthy=self.worst_healthy or 0,
             cameras_total=self.cameras_total,
         )
 
@@ -177,10 +182,17 @@ class OccupancySampler:
             totals[space_id] = totals.get(space_id, 0) + state.count
 
         for space_id in seen_cameras:
+            live = live_cameras.get(space_id, set())
+            if not live:
+                # Every camera covering this space is down this tick. We have NO
+                # information, so contribute nothing rather than record a fabricated 0 —
+                # blindness is a gap, not an empty room. If the whole minute is blind the
+                # space simply has no row (an honest gap in the series).
+                continue
             acc = self._buckets.setdefault(space_id, _SpaceAccumulator())
             acc.add(
                 count=totals.get(space_id, 0),
-                healthy=len(live_cameras.get(space_id, ())),
+                healthy=len(live),
                 total=len(seen_cameras[space_id]),
             )
 
@@ -199,7 +211,9 @@ class OccupancySampler:
         with session_scope() as session:
             repo = OccupancyRepository(session)
             for row in rows:
-                repo.upsert(Grain.MINUTE, row)
+                # Merge, not overwrite: a restart mid-minute flushed a partial row that
+                # this process must fold into, not clobber (see OccupancyRepository.upsert).
+                repo.upsert(Grain.MINUTE, row, merge=True)
 
         logger.debug(
             "flushed occupancy minute buckets",

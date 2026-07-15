@@ -33,6 +33,8 @@ def _minute(
     low: int = 0,
     space_id: str = "b1-waiting-area",
     floor: str | None = "B1",
+    cameras_healthy: int = 2,
+    cameras_total: int = 2,
 ) -> None:
     OccupancyRepository(session).upsert(
         Grain.MINUTE,
@@ -44,8 +46,8 @@ def _minute(
             peak=int(avg) if peak is None else peak,
             min=low,
             samples=samples,
-            cameras_healthy=2,
-            cameras_total=2,
+            cameras_healthy=cameras_healthy,
+            cameras_total=cameras_total,
         ),
     )
 
@@ -155,3 +157,20 @@ def test_retention_is_throttled_to_hourly_not_every_tick(session: Session) -> No
     assert worker.prune_if_due(_NOW + timedelta(minutes=1)) is False  # a tick later: skipped
     assert worker.prune_if_due(_NOW + timedelta(minutes=59)) is False
     assert worker.prune_if_due(_NOW + timedelta(hours=1)) is True  # due again
+
+
+def test_hour_coverage_is_the_worst_minute_not_the_best(session: Session) -> None:
+    """An hour that lost a camera for even one minute must report reduced coverage.
+
+    Aggregating coverage as max would let a single fully-covered minute paper over an hour
+    that was mostly blind, hiding that the hour's average is depressed by an outage.
+    """
+    _minute(session, 0, avg=10.0, cameras_healthy=2, cameras_total=2)
+    _minute(session, 1, avg=10.0, cameras_healthy=1, cameras_total=2)  # a camera dropped
+    session.commit()
+
+    HistoryWorker().run_once(_NOW)
+
+    (hour,) = _hours(session)
+    assert hour.cameras_healthy == 1  # worst minute, not the best (which was 2)
+    assert hour.cameras_total == 2
