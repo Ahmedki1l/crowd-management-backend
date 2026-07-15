@@ -84,6 +84,8 @@ python --version                             # -> Python 3.11.x
 
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
+
+.venv\Scripts\activate.bat
 ```
 
 ### Then, on either
