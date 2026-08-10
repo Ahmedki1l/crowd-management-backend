@@ -43,7 +43,13 @@ _ENGINE_PATHS = {
 _STREAM_PATHS = {"/api/v1/stream"}
 
 # Placeholder values for path params, and required query params per path.
-_PATH_VALUES = {"camera_id": "1", "zone_id": "1", "line_id": "1", "alert_id": "1"}
+_PATH_VALUES = {
+    "camera_id": "1",
+    "camera_ip": "10.0.0.99",
+    "zone_id": "1",
+    "line_id": "1",
+    "alert_id": "1",
+}
 _REQUIRED_QUERY = {
     "/api/v1/history/entry-exit": {"area_id": "lobby"},
     "/api/v1/history/entry-exit/daily": {"area_id": "lobby"},
@@ -112,11 +118,20 @@ def test_the_digital_twin_contract_endpoints_are_all_routed() -> None:
 
 @pytest.mark.parametrize(("method", "path"), _READS, ids=lambda v: str(v))
 def test_every_get_endpoint_answers(
-    client: TestClient, auth_headers: dict[str, str], method: str, path: str
+    client: TestClient,
+    auth_headers: dict[str, str],
+    crowd_camera_internal_headers: dict[str, str],
+    method: str,
+    path: str,
 ) -> None:
     """No 404-from-misrouting and no 500-from-wiring, across the whole read surface."""
+    headers = (
+        crowd_camera_internal_headers
+        if path.startswith("/api/v1/internal/cameras/")
+        else auth_headers
+    )
     response = client.request(
-        method, _fill(path), headers=auth_headers, params=_REQUIRED_QUERY.get(path)
+        method, _fill(path), headers=headers, params=_REQUIRED_QUERY.get(path)
     )
 
     allowed = _ACCEPTABLE | _HARDWARE_PATHS.get(path, set())

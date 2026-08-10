@@ -41,6 +41,7 @@ REAL_HISTORY_WORKER_START = HistoryWorker.start
 
 _TEST_DB_URL = "sqlite:///:memory:"
 _TEST_AUTH_SECRET = "test-secret"
+_TEST_CROWD_CAMERA_INTERNAL_TOKEN = "test-crowd-camera-internal-token"
 _CONFIG_PATH = "config/config.example.yaml"
 
 
@@ -64,6 +65,9 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(HistoryWorker, "start", lambda self: None)
     monkeypatch.setenv("DATABASE_URL", _TEST_DB_URL)
     monkeypatch.setenv("API_AUTH_SECRET", _TEST_AUTH_SECRET)
+    monkeypatch.setenv(
+        "CROWD_CAMERA_INTERNAL_TOKEN", _TEST_CROWD_CAMERA_INTERNAL_TOKEN
+    )
     monkeypatch.setenv("CAMERA_CREDENTIALS_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("CONFIG_PATH", _CONFIG_PATH)
 
@@ -94,6 +98,12 @@ def auth_headers() -> dict[str, str]:
     """Authorization header carrying a valid JWT for subject ``test``."""
     token = encode_jwt({"sub": "test"}, _TEST_AUTH_SECRET, 3600)
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def crowd_camera_internal_headers() -> dict[str, str]:
+    """Dedicated service credential for the camera relay contract."""
+    return {"X-Internal-Token": _TEST_CROWD_CAMERA_INTERNAL_TOKEN}
 
 
 @pytest.fixture

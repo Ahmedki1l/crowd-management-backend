@@ -56,6 +56,16 @@ class CameraRepository:
             )
         )
 
+    def list_enabled_by_ip(self, ip: str) -> list[Camera]:
+        """Return enabled cameras with the exact IP, ordered by id."""
+        return list(
+            self._session.scalars(
+                select(Camera)
+                .where(Camera.enabled.is_(True), Camera.ip == ip)
+                .order_by(Camera.id)
+            )
+        )
+
     def update(self, id: int, data: dict[str, Any]) -> Camera | None:
         """Apply ``data`` (column->value) to the camera and return it, or ``None``.
 
