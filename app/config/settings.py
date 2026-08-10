@@ -17,9 +17,9 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-load_dotenv()
-
 from app.config.schema import AppConfig
+
+load_dotenv()
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
@@ -64,15 +64,17 @@ def load_config(config_path: str | os.PathLike[str] | None = None) -> AppConfig:
 
 
 class Secrets(BaseModel):
-    """Env-only secrets. Never sourced from YAML or returned by any API route."""
+    """Env-only secrets that are never sourced from YAML."""
 
     camera_credentials_key: str | None = None
+    crowd_camera_internal_token: str | None = None
     api_auth_secret: str = "change-me"
 
 
 def load_secrets() -> Secrets:
     return Secrets(
         camera_credentials_key=os.environ.get("CAMERA_CREDENTIALS_KEY") or None,
+        crowd_camera_internal_token=os.environ.get("CROWD_CAMERA_INTERNAL_TOKEN") or None,
         api_auth_secret=os.environ.get("API_AUTH_SECRET", "change-me"),
     )
 

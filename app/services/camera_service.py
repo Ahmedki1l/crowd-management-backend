@@ -6,10 +6,9 @@ encryption at rest (:class:`~app.services.credentials.CredentialCipher`) and
 assembling the immutable :class:`~app.domain.models.CameraSpec` the engine runs.
 
 Plaintext passwords exist only transiently inside this service. They are
-encrypted before reaching the database, never written to a response model
-(``CameraOut`` exposes only ``has_password``), and only decrypted by
-:meth:`CameraService.resolve_password` for the engine that actually connects to
-the stream.
+encrypted before reaching the database and never written to the public
+``CameraOut`` model (which exposes only ``has_password``). Decryption is limited
+to the engine and the dedicated internal camera-relay response.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.schemas.camera import (
     CameraCreate,
+    CameraCredentialsOut,
     CameraOut,
     CameraTestResult,
     CameraUpdate,
@@ -130,6 +130,10 @@ class CameraService:
         """Return all cameras ordered by id."""
         return self._cameras.list()
 
+    def list_enabled_by_ip(self, ip: str) -> list[Camera]:
+        """Return enabled cameras matching an exact IP address."""
+        return self._cameras.list_enabled_by_ip(ip)
+
     # ------------------------------------------------------------------ #
     # Presentation
     # ------------------------------------------------------------------ #
@@ -154,6 +158,14 @@ class CameraService:
             enabled=camera.enabled,
             has_password=camera.password_encrypted is not None,
             updated_at=camera.updated_at,
+        )
+
+    def to_credentials_out(self, camera: Camera) -> CameraCredentialsOut:
+        """Build the internal credential projection for the camera relay."""
+        public_fields = self.to_out(camera).model_dump()
+        return CameraCredentialsOut(
+            **public_fields,
+            password=self.resolve_password(camera.id),
         )
 
     # ------------------------------------------------------------------ #

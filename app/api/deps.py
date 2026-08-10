@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
 from collections.abc import Iterator
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -55,9 +56,6 @@ def require_auth(
         )
     token = credentials.credentials.strip()
     if settings.api.auth_scheme == "api_key":
-        # constant-time compare against the configured key
-        import hmac
-
         if not hmac.compare_digest(token, secrets.api_auth_secret):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key")
         return {"sub": "api-key"}
@@ -70,3 +68,23 @@ def require_auth(
 
 
 AuthDep = Depends(require_auth)
+
+
+def require_crowd_camera_internal_token(
+    token: str | None = Header(default=None, alias="X-Internal-Token"),
+) -> None:
+    """Authorize the camera relay's credential lookup with a dedicated token."""
+    expected = get_secrets().crowd_camera_internal_token
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="internal camera credential access is not configured",
+        )
+    if token is None or not hmac.compare_digest(token, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid internal token",
+        )
+
+
+CrowdCameraInternalAuthDep = Depends(require_crowd_camera_internal_token)
