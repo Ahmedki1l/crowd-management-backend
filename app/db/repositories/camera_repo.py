@@ -44,6 +44,18 @@ class CameraRepository:
             select(Camera).where(Camera.name == name)
         ).first()
 
+    def list_by_ip(self, ip: str) -> list[Camera]:
+        """Return all cameras with ``ip``, ordered by id.
+
+        The current schema does not enforce IP uniqueness, so callers that
+        require exactly one match must reject an ambiguous result explicitly.
+        """
+        return list(
+            self._session.scalars(
+                select(Camera).where(Camera.ip == ip).order_by(Camera.id)
+            )
+        )
+
     def list(self) -> list[Camera]:
         """Return all cameras ordered by id."""
         return list(self._session.scalars(select(Camera).order_by(Camera.id)))

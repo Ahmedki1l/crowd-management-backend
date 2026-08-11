@@ -17,6 +17,12 @@ venv/
 api_token.txt
 api-token.txt  
 
+/tmp
+/tests
+/docs
+/output
+*.db
+
 ## Data / models / runtime
 validation_snapshots/
 # config/config.local.yaml is tracked so the runtime config (allowlist, model

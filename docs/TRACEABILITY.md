@@ -2,7 +2,7 @@
 
 Every functional requirement traces to the code that implements it, the API it is
 served over, and the automated test(s) that verify it (vnv-guard). All tests run
-on the lightweight core (no cameras/GPU) — `pytest` → **315 passed**.
+on the lightweight core (no cameras/GPU) — `pytest` → **334 passed**.
 
 | Requirement | Implementing components | Endpoint(s) | Verifying test(s) |
 |---|---|---|---|
@@ -14,7 +14,7 @@ on the lightweight core (no cameras/GPU) — `pytest` → **315 passed**.
 | **NFR-04** retention | `services/retention` (pruner, run each rollup pass) + `config.retention` | `/history/*` | `test_retention` |
 | **NFR-05** capacity / scale-out | worker-per-camera (`engine`), tiered fps, INT8/FP16 detector, **Redis-backed bus + state** (`redis_bus`, `redis_state_store`) for multi-process | `GET /metrics`, `/cameras/{id}/health` | `test_state_store`, `test_redis_bus`, `test_redis_state_store`, `test_serialization`, `test_engine` |
 | **Cross-camera identity** (HLD 5.6) | shared OSNet `ReIDManager`; pipeline promotes `global_id` → identity. **Disabled** (`tracker.reid_enabled: false`) and unused on the snapshot-occupancy path | feeds entry/exit when the gate runs | `test_reid` (unit: cross-camera, TTL, mutual-exclusion). **No pipeline-level identity test** — it observed identity via `DwellClosed`, which was removed with waiting |
-| **Security** (HLD 14) | AES-256-GCM credential cipher (`services/credentials`), write-only password, JWT auth (`utils/security`, `api/deps`) | all routes (auth); `/cameras` (password never returned) | `test_credentials`, `test_security_jwt`, `test_api_cameras` (401 + no-leak) |
+| **Security** (HLD 14) | AES-256-GCM credential cipher (`services/credentials`), write-only registry CRUD, authenticated/non-cacheable camera-server credential resolution by IP, JWT auth (`utils/security`, `api/deps`) | all routes (auth); `/cameras` (password never returned by GET); `POST /cameras/credentials/resolve` | `test_credentials`, `test_security_jwt`, `test_api_cameras` (401 + no-leak + credential resolution) |
 
 ## Definition of Done — status
 

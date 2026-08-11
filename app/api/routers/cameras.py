@@ -4,18 +4,22 @@ CRUD plus a connectivity probe over the camera registry. All persistence and
 credential handling is delegated to :class:`~app.services.camera_service.CameraService`;
 this router only translates HTTP <-> service calls and maps rows to ``CameraOut``.
 
-The RTSP password is write-only by design: it is accepted on create/update but
-never returned — ``CameraOut`` carries only ``has_password`` (HLD 8.1 / 14).
+The RTSP password is write-only in registry responses: it is accepted on
+create/update but never returned by a GET — ``CameraOut`` carries only
+``has_password`` (HLD 8.1 / 14). A dedicated authenticated POST resolves one
+camera's credentials by IP for the camera server.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuthDep, db_session
 from app.api.schemas.camera import (
     CameraCreate,
+    CameraCredentialsByIp,
+    CameraCredentialsOut,
     CameraOut,
     CameraTestResult,
     CameraUpdate,
@@ -23,6 +27,8 @@ from app.api.schemas.camera import (
 from app.services.camera_service import CameraService
 
 router = APIRouter(prefix="/cameras", tags=["cameras"], dependencies=[AuthDep])
+
+_NO_STORE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 def _get_service(session: Session = Depends(db_session)) -> CameraService:
@@ -43,6 +49,35 @@ def create_camera(
     """Create a camera, encrypting its password before it is persisted."""
     camera = service.create_camera(payload)
     return service.to_out(camera)
+
+
+@router.post("/credentials/resolve", response_model=CameraCredentialsOut)
+def resolve_camera_credentials(
+    payload: CameraCredentialsByIp,
+    response: Response,
+    service: CameraService = Depends(_get_service),
+) -> CameraCredentialsOut:
+    """Return one camera's credentials by IP for an authenticated camera server.
+
+    The response contains plaintext credentials, so intermediaries must not
+    cache it. Callers must also use TLS; bearer authentication is enforced by
+    the router-level dependency.
+    """
+    response.headers.update(_NO_STORE_HEADERS)
+    try:
+        return service.resolve_credentials_by_ip(payload.ip)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"camera with IP {payload.ip} not found",
+            headers=_NO_STORE_HEADERS,
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="camera credentials are unavailable",
+            headers=_NO_STORE_HEADERS,
+        ) from exc
 
 
 @router.get("/{camera_id}", response_model=CameraOut)

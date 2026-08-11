@@ -1,5 +1,10 @@
-"""Camera API schemas. The password is **write-only** (HLD 8.1 / 14):
-accepted on POST/PATCH, never returned by any GET."""
+"""Camera API schemas.
+
+Registry responses keep the password **write-only** (HLD 8.1 / 14): it is
+accepted on create/update and never returned by any GET. The dedicated,
+authenticated server-to-server credential-resolution POST uses the separate
+``CameraCredentialsOut`` response model.
+"""
 
 from __future__ import annotations
 
@@ -38,6 +43,22 @@ class CameraUpdate(BaseModel):
     stream_channel_sub: int | None = None
     stream_channel_main: int | None = None
     enabled: bool | None = None
+
+
+class CameraCredentialsByIp(BaseModel):
+    """Server-to-server request for one camera's credentials by IP address."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    ip: str = Field(min_length=1, max_length=64)
+
+
+class CameraCredentialsOut(BaseModel):
+    """Sensitive response returned only by the credential-resolution POST."""
+
+    ip: str
+    username: str
+    password: str = Field(repr=False)
 
 
 class CameraOut(BaseModel):

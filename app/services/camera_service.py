@@ -6,9 +6,10 @@ encryption at rest (:class:`~app.services.credentials.CredentialCipher`) and
 assembling the immutable :class:`~app.domain.models.CameraSpec` the engine runs.
 
 Plaintext passwords exist only transiently inside this service. They are
-encrypted before reaching the database and never written to the public
-``CameraOut`` model (which exposes only ``has_password``). Decryption is limited
-to the engine and the dedicated internal camera-relay response.
+encrypted before reaching the database and never written to registry response
+models (``CameraOut`` exposes only ``has_password``). Decryption is limited to
+engine stream connection and the authenticated server-to-server credential
+resolution flow.
 """
 
 from __future__ import annotations
@@ -212,6 +213,37 @@ class CameraService:
             raise ValueError(f"camera {camera_id} has no stored credential")
         cipher = CredentialCipher.from_env()
         return cipher.decrypt(camera.password_encrypted)
+
+    def resolve_credentials_by_ip(self, ip: str) -> CameraCredentialsOut:
+        """Resolve one camera's username and plaintext password by exact IP.
+
+        This method backs the authenticated camera-server endpoint. The schema
+        does not currently enforce unique camera IPs, so duplicate matches are
+        rejected instead of choosing credentials nondeterministically.
+
+        Args:
+            ip: Exact camera IP stored in the registry.
+
+        Returns:
+            The camera IP, username and decrypted plaintext password.
+
+        Raises:
+            KeyError: If no camera has ``ip``.
+            ValueError: If multiple cameras have ``ip``, the matching camera has
+                no stored credential, or its ciphertext cannot be decrypted.
+        """
+        cameras = self._cameras.list_by_ip(ip)
+        if not cameras:
+            raise KeyError(f"camera with IP {ip} not found")
+        if len(cameras) > 1:
+            raise ValueError(f"multiple cameras are registered with IP {ip}")
+
+        camera = cameras[0]
+        return CameraCredentialsOut(
+            ip=camera.ip,
+            username=camera.username,
+            password=self.resolve_password(camera.id),
+        )
 
     # ------------------------------------------------------------------ #
     # Connectivity probe

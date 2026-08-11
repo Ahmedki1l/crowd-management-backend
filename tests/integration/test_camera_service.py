@@ -3,12 +3,13 @@
 These exercise the real ``CredentialCipher`` (keyed from the
 ``CAMERA_CREDENTIALS_KEY`` env set by ``_isolated_environment``) against the
 per-test in-memory DB. The contract under test: the plaintext password is
-encrypted before it reaches the row, never surfaces in the response model, and
-round-trips back only through ``resolve_password``.
+encrypted before it reaches the row, never surfaces in registry response models,
+and round-trips only through the engine or authenticated camera-server resolver.
 """
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.api.schemas.camera import CameraCreate, CameraUpdate
@@ -57,6 +58,28 @@ def test_resolve_password_decrypts_back_to_original_plaintext(session: Session) 
     camera = service.create_camera(_create_payload())
 
     assert service.resolve_password(camera.id) == _PLAINTEXT
+
+
+def test_resolve_credentials_by_ip_returns_username_and_password(session: Session) -> None:
+    service = CameraService(session)
+    service.create_camera(_create_payload())
+
+    credentials = service.resolve_credentials_by_ip("10.0.0.5")
+
+    assert credentials.model_dump() == {
+        "ip": "10.0.0.5",
+        "username": "admin",
+        "password": _PLAINTEXT,
+    }
+
+
+def test_resolve_credentials_by_ip_rejects_duplicate_ip(session: Session) -> None:
+    service = CameraService(session)
+    service.create_camera(_create_payload(name="front-door"))
+    service.create_camera(_create_payload(name="rear-door"))
+
+    with pytest.raises(ValueError, match="multiple cameras"):
+        service.resolve_credentials_by_ip("10.0.0.5")
 
 
 def test_update_camera_with_new_password_rotates_the_stored_credential(

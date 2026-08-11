@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.db.models.camera import Camera
 
 from app.config.settings import reset_settings_cache
 
@@ -30,6 +33,14 @@ def _create_payload(**over) -> dict:
 
 def test_list_cameras_without_auth_returns_401(client: TestClient) -> None:
     response = client.get("/api/v1/cameras")
+
+    assert response.status_code == 401
+
+
+def test_resolve_credentials_without_auth_returns_401(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve", json={"ip": "10.0.0.7"}
+    )
 
     assert response.status_code == 401
 
@@ -90,6 +101,107 @@ def test_list_cameras_returns_created_camera(
 
     assert response.status_code == 200
     assert [c["name"] for c in response.json()] == ["lobby-cam"]
+    assert "password" not in response.json()[0]
+
+
+def test_resolve_credentials_by_ip_returns_secret_without_caching(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    client.post("/api/v1/cameras", json=_create_payload(), headers=auth_headers)
+
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve",
+        json={"ip": "10.0.0.7"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ip": "10.0.0.7",
+        "username": "admin",
+        "password": "s3cret",
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+
+
+def test_resolve_credentials_for_unknown_ip_returns_404(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve",
+        json={"ip": "10.0.0.99"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "camera with IP 10.0.0.99 not found"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_resolve_credentials_rejects_blank_ip(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve",
+        json={"ip": "   "},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+
+
+def test_resolve_credentials_rejects_duplicate_ip(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    client.post(
+        "/api/v1/cameras",
+        json=_create_payload(name="lobby-cam-a"),
+        headers=auth_headers,
+    )
+    client.post(
+        "/api/v1/cameras",
+        json=_create_payload(name="lobby-cam-b"),
+        headers=auth_headers,
+    )
+
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve",
+        json={"ip": "10.0.0.7"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "camera credentials are unavailable"}
+
+
+def test_resolve_credentials_without_stored_password_returns_409(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    session: Session,
+) -> None:
+    session.add(
+        Camera(
+            name="passwordless-camera",
+            area="lobby",
+            ip="10.0.0.8",
+            port=554,
+            username="admin",
+            roles=["occupancy"],
+            enabled=True,
+        )
+    )
+    session.commit()
+
+    response = client.post(
+        "/api/v1/cameras/credentials/resolve",
+        json={"ip": "10.0.0.8"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "camera credentials are unavailable"}
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_get_camera_by_id_returns_camera(
