@@ -131,6 +131,10 @@ class CameraService:
         """Return all cameras ordered by id."""
         return self._cameras.list()
 
+    def list_enabled_by_ip(self, ip: str) -> list[Camera]:
+        """Return enabled cameras matching an exact IP address."""
+        return self._cameras.list_enabled_by_ip(ip)
+
     # ------------------------------------------------------------------ #
     # Presentation
     # ------------------------------------------------------------------ #
@@ -155,6 +159,14 @@ class CameraService:
             enabled=camera.enabled,
             has_password=camera.password_encrypted is not None,
             updated_at=camera.updated_at,
+        )
+
+    def to_credentials_out(self, camera: Camera) -> CameraCredentialsOut:
+        """Build the internal credential projection for the camera relay."""
+        public_fields = self.to_out(camera).model_dump()
+        return CameraCredentialsOut(
+            **public_fields,
+            password=self.resolve_password(camera.id),
         )
 
     # ------------------------------------------------------------------ #

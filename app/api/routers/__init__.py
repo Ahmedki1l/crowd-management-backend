@@ -20,6 +20,7 @@ from app.api.routers.engine import router as engine_router
 from app.api.routers.entry_exit import router as entry_exit_router
 from app.api.routers.health import router as health_router
 from app.api.routers.history import router as history_router
+from app.api.routers.internal_cameras import router as internal_cameras_router
 from app.api.routers.lines import router as lines_router
 from app.api.routers.occupancy import router as occupancy_router
 from app.api.routers.state import router as state_router
@@ -29,6 +30,7 @@ from app.api.routers.zones import router as zones_router
 
 all_routers: list[APIRouter] = [
     cameras_router,
+    internal_cameras_router,
     zones_router,
     lines_router,
     config_router,

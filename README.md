@@ -151,6 +151,20 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   "localhost:8008/api/v1/history/occupancy?bucket=1h&floor=B1"
 ```
 
+### Camera relay credential lookup
+
+The camera relay resolves Digital Twin building cameras from Crowd Management by IP:
+
+```text
+GET /api/v1/internal/cameras/by-ip/{camera_ip}/credentials
+X-Internal-Token: <CROWD_CAMERA_INTERNAL_TOKEN>
+```
+
+This internal route returns the enabled camera's server-side streaming configuration,
+including its decrypted RTSP credential. It is not authorized by the normal API bearer
+token and must only be reachable from the camera relay over the private service network.
+No public camera endpoint returns the password.
+
 ### The ROI editor (drawing zones and lines)
 
 `http://localhost:8008/api/v1/tools/roi` — paste the token into the box at the top (it is

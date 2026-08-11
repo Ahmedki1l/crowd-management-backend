@@ -8,10 +8,13 @@ read paths, partial update, and the delete -> 404 lifecycle. The real
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.models.camera import Camera
+
+from app.config.settings import reset_settings_cache
 
 
 def _create_payload(**over) -> dict:
@@ -264,3 +267,104 @@ def test_get_deleted_camera_returns_404(
     response = client.get(f"/api/v1/cameras/{created['id']}", headers=auth_headers)
 
     assert response.status_code == 404
+
+
+def test_internal_credentials_require_dedicated_token(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.7/credentials",
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 401
+
+
+def test_internal_credentials_return_decrypted_camera_config(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    crowd_camera_internal_headers: dict[str, str],
+) -> None:
+    client.post("/api/v1/cameras", json=_create_payload(), headers=auth_headers)
+
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.7/credentials",
+        headers=crowd_camera_internal_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "lobby-cam"
+    assert body["username"] == "admin"
+    assert body["password"] == "s3cret"
+    assert body["stream_channel_main"] == 101
+    assert body["stream_channel_sub"] == 102
+
+
+def test_internal_credentials_return_404_for_unknown_ip(
+    client: TestClient,
+    crowd_camera_internal_headers: dict[str, str],
+) -> None:
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.99/credentials",
+        headers=crowd_camera_internal_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_internal_credentials_ignore_disabled_camera(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    crowd_camera_internal_headers: dict[str, str],
+) -> None:
+    client.post(
+        "/api/v1/cameras",
+        json=_create_payload(enabled=False),
+        headers=auth_headers,
+    )
+
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.7/credentials",
+        headers=crowd_camera_internal_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_internal_credentials_return_503_without_decryption_key(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    crowd_camera_internal_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client.post("/api/v1/cameras", json=_create_payload(), headers=auth_headers)
+    monkeypatch.delenv("CAMERA_CREDENTIALS_KEY")
+    reset_settings_cache()
+
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.7/credentials",
+        headers=crowd_camera_internal_headers,
+    )
+
+    assert response.status_code == 503
+
+
+def test_internal_credentials_reject_ambiguous_ip(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    crowd_camera_internal_headers: dict[str, str],
+) -> None:
+    client.post("/api/v1/cameras", json=_create_payload(), headers=auth_headers)
+    client.post(
+        "/api/v1/cameras",
+        json=_create_payload(name="second-lobby-cam"),
+        headers=auth_headers,
+    )
+
+    response = client.get(
+        "/api/v1/internal/cameras/by-ip/10.0.0.7/credentials",
+        headers=crowd_camera_internal_headers,
+    )
+
+    assert response.status_code == 409

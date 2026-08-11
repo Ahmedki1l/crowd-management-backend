@@ -82,6 +82,12 @@ class CameraOut(BaseModel):
     updated_at: datetime | None = None
 
 
+class CameraCredentialsOut(CameraOut):
+    """Internal camera projection; never mount on a public-authenticated route."""
+
+    password: str
+
+
 class CameraTestResult(BaseModel):
     reachable: bool
     codec: str | None = None
