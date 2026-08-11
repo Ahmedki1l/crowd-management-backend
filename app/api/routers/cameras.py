@@ -19,7 +19,7 @@ from app.api.deps import AuthDep, db_session
 from app.api.schemas.camera import (
     CameraCreate,
     CameraCredentialsByIp,
-    CameraCredentialsOut,
+    CameraCredentialsResolveOut,
     CameraOut,
     CameraTestResult,
     CameraUpdate,
@@ -51,12 +51,12 @@ def create_camera(
     return service.to_out(camera)
 
 
-@router.post("/credentials/resolve", response_model=CameraCredentialsOut)
+@router.post("/credentials/resolve", response_model=CameraCredentialsResolveOut)
 def resolve_camera_credentials(
     payload: CameraCredentialsByIp,
     response: Response,
     service: CameraService = Depends(_get_service),
-) -> CameraCredentialsOut:
+) -> CameraCredentialsResolveOut:
     """Return one camera's credentials by IP for an authenticated camera server.
 
     The response contains plaintext credentials, so intermediaries must not
