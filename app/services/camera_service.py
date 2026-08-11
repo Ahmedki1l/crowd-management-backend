@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.schemas.camera import (
     CameraCreate,
     CameraCredentialsOut,
+    CameraCredentialsResolveOut,
     CameraOut,
     CameraTestResult,
     CameraUpdate,
@@ -214,7 +215,7 @@ class CameraService:
         cipher = CredentialCipher.from_env()
         return cipher.decrypt(camera.password_encrypted)
 
-    def resolve_credentials_by_ip(self, ip: str) -> CameraCredentialsOut:
+    def resolve_credentials_by_ip(self, ip: str) -> CameraCredentialsResolveOut:
         """Resolve one camera's username and plaintext password by exact IP.
 
         This method backs the authenticated camera-server endpoint. The schema
@@ -239,7 +240,7 @@ class CameraService:
             raise ValueError(f"multiple cameras are registered with IP {ip}")
 
         camera = cameras[0]
-        return CameraCredentialsOut(
+        return CameraCredentialsResolveOut(
             ip=camera.ip,
             username=camera.username,
             password=self.resolve_password(camera.id),

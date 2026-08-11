@@ -10,9 +10,15 @@ and round-trips only through the engine or authenticated camera-server resolver.
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.api.schemas.camera import CameraCreate, CameraUpdate
+from app.api.schemas.camera import (
+    CameraCreate,
+    CameraCredentialsOut,
+    CameraCredentialsResolveOut,
+    CameraUpdate,
+)
 from app.domain.models import CameraRole
 from app.services.camera_service import CameraService
 
@@ -71,6 +77,28 @@ def test_resolve_credentials_by_ip_returns_username_and_password(session: Sessio
         "username": "admin",
         "password": _PLAINTEXT,
     }
+
+
+def test_credentials_resolve_response_hides_plaintext_in_validation_errors() -> None:
+    plaintext = "must-not-appear-in-validation-error"
+
+    with pytest.raises(ValidationError) as exc_info:
+        CameraCredentialsResolveOut(
+            ip=None,  # type: ignore[arg-type]
+            username="admin",
+            password=plaintext,
+        )
+
+    assert plaintext not in str(exc_info.value)
+
+
+def test_internal_credentials_response_hides_plaintext_in_validation_errors() -> None:
+    plaintext = "must-not-appear-in-validation-error"
+
+    with pytest.raises(ValidationError) as exc_info:
+        CameraCredentialsOut(password=plaintext)  # type: ignore[call-arg]
+
+    assert plaintext not in str(exc_info.value)
 
 
 def test_resolve_credentials_by_ip_rejects_duplicate_ip(session: Session) -> None:

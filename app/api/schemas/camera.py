@@ -3,7 +3,8 @@
 Registry responses keep the password **write-only** (HLD 8.1 / 14): it is
 accepted on create/update and never returned by any GET. The dedicated,
 authenticated server-to-server credential-resolution POST uses the separate
-``CameraCredentialsOut`` response model.
+``CameraCredentialsResolveOut`` response model. Its distinct name prevents it
+from being confused with richer internal camera projections during merges.
 """
 
 from __future__ import annotations
@@ -53,8 +54,10 @@ class CameraCredentialsByIp(BaseModel):
     ip: str = Field(min_length=1, max_length=64)
 
 
-class CameraCredentialsOut(BaseModel):
+class CameraCredentialsResolveOut(BaseModel):
     """Sensitive response returned only by the credential-resolution POST."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     ip: str
     username: str
@@ -85,7 +88,9 @@ class CameraOut(BaseModel):
 class CameraCredentialsOut(CameraOut):
     """Internal camera projection; never mount on a public-authenticated route."""
 
-    password: str
+    model_config = ConfigDict(from_attributes=True, hide_input_in_errors=True)
+
+    password: str = Field(repr=False)
 
 
 class CameraTestResult(BaseModel):
