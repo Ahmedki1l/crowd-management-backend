@@ -230,16 +230,20 @@ would renumber (HLD 5.6).
 ## API surface (`/api/v1`, JWT/API-key auth on all routes)
 
 - **Config** — `/cameras`, `/cameras/{id}/test`, `/zones`, `/lines`, `/config`
+- **Camera-server credentials** — `POST /cameras/credentials/resolve` with
+  `{"ip":"10.1.13.21"}` returns that camera's username/password to an authenticated caller
 - **Live metrics** — `/state`, `/occupancy`, `/occupancy/{spaces,floors}`, `/entry-exit`, `/stats`
 - **History** — `/history/occupancy` (per space), `/history/occupancy/floors` (per floor),
   `/history/entry-exit`, `/history/entry-exit/daily`
 - **Realtime & ops** — `/stream` (SSE), `/engine/*`, `/cameras/{id}/health`, `/health`, `/ready`, `/metrics`
 - **Tools** — `/tools/roi` (the zone/line drawing page), `/tools/cameras/{id}/frame`, `/tools/capture`
 
-> **Camera credentials are write-only.** Passwords are accepted on POST/PATCH
-> over TLS, stored **encrypted** (AES-256-GCM via `CAMERA_CREDENTIALS_KEY`,
-> key held outside the DB), decrypted only in memory at stream-open, and never
-> returned by any GET.
+> **Camera credentials are write-only in registry CRUD.** Passwords are accepted
+> on POST/PATCH over TLS, stored **encrypted** (AES-256-GCM via
+> `CAMERA_CREDENTIALS_KEY`, key held outside the DB), and never returned by any
+> GET. The authenticated `POST /cameras/credentials/resolve` endpoint is the one
+> exception for the camera server: it resolves a single camera by exact IP and
+> returns a non-cacheable plaintext credential response. Use it only over TLS.
 
 ---
 
